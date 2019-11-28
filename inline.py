@@ -10,6 +10,8 @@ from pprint import pprint
 import dis
 from utils import *
 
+SEP = '___'
+
 
 class ExpandObjs(ast.NodeTransformer):
     def __init__(self, globls, objs_to_inline):
@@ -23,7 +25,7 @@ class ExpandObjs(ast.NodeTransformer):
                 obj = self.globls[name]
                 if id(obj) in self.objs_to_inline:
                     new_name = self.objs_to_inline[id(obj)]
-                    return ast.Name(id=f'{new_name}__{attr.attr}')
+                    return ast.Name(id=f'{new_name}{SEP}{attr.attr}')
         return attr
 
 
@@ -151,6 +153,14 @@ class CollectLineNumbers(ast.NodeVisitor):
         super().generic_visit(node)
 
 
+class RemoveSuffix(ast.NodeTransformer):
+    def visit_Name(self, name):
+        parts = name.id.split(SEP)
+        if len(parts) > 1:
+            name.id = parts[0]
+        return name
+
+
 class Inliner:
     def __init__(self, stmts):
         self.stmts = stmts
@@ -221,7 +231,7 @@ class Inliner:
             ReplaceSelf(cls).visit(f_ast)
 
         def make_unique_name(name):
-            return f'{name}__{f_ast.name}'
+            return f'{name}{SEP}{f_ast.name}'
 
         assgn_finder = FindAssignments()
         assgn_finder.visit(f_ast)
@@ -436,7 +446,7 @@ class Inliner:
                     if isinstance(stmt.value, ast.Call):
                         return [
                             ast.Assign(
-                                targets=[ast.Name(id=f'{new_name}__{k}')],
+                                targets=[ast.Name(id=f'{new_name}{SEP}{k}')],
                                 value=ast.NameConstant(None))
                             for k in vars(obj).keys()
                         ]
@@ -524,7 +534,7 @@ class Inliner:
 
                 if tracer.set_count[k] == 1 and val_eq and \
                    isinstance(stmt.value, \
-                              (ast.Num, ast.Str, ast.NameConstant, ast.Name)):
+                              (ast.Num, ast.Str, ast.NameConstant, ast.Name, ast.Attribute, ast.Tuple)):
                     toplevel_assignments[k] = stmt
 
         new_stmts = []
@@ -543,6 +553,78 @@ class Inliner:
                 new_stmts.append(stmt)
 
         self.stmts = new_stmts
+
+    def lifetimes(self):
+        prog = self.make_program()
+        tracer = Tracer(prog, opcode=True)
+        tracer.trace()
+
+        self.stmts = ast.parse(prog).body
+
+        unused_stores = defaultdict(list)
+        for k, stores in tracer.stores.items():
+            reads = tracer.reads[k]
+
+            for i, (_, store_line) in enumerate(stores):
+                next_possible_stores = [
+                    line for _, line in stores[i + 1:] if line > store_line
+                ]
+                next_store_line = min(next_possible_stores, default=10000000)
+
+                unused = True
+                for (_, read_line) in reads:
+                    if store_line < read_line and read_line <= next_store_line:
+                        unused = False
+
+                if unused:
+                    unused_stores[k].append(store_line)
+
+        def remove_unused(stmt):
+            if isinstance(stmt, ast.Assign) and \
+               len(stmt.targets) == 1 and \
+               isinstance(stmt.targets[0], ast.Name):
+
+                # special case for assignments like "x = x"
+                if compare_ast(stmt.targets[0], stmt.value):
+                    return []
+
+                name = stmt.targets[0].id
+                unused_lines = unused_stores[name]
+
+                collect_lineno = CollectLineNumbers()
+                collect_lineno.visit(stmt)
+
+                if len(set(unused_lines) & collect_lineno.linenos) > 0:
+                    return []
+
+            return [stmt]
+
+        self.stmts = self.stmt_recurse(self.stmts, remove_unused)
+
+    def expand_tuples(self):
+        def expand(stmt):
+            if isinstance(stmt, ast.Assign) and isinstance(
+                    stmt.value, ast.Tuple):
+                if len(stmt.targets) > 1:
+                    targets = stmt.targets
+                elif isinstance(stmt.targets[0], ast.Tuple):
+                    targets = stmt.targets[0].elts
+                else:
+                    return [stmt]
+
+                if all([
+                        isinstance(elt,
+                                   (ast.Name, ast.Num, ast.Str,
+                                    ast.NameConstant, ast.Attribute, ast.Tuple))
+                        for elt in stmt.value.elts
+                ]):
+                    return [
+                        ast.Assign(targets=[name], value=elt)
+                        for name, elt in zip(targets, stmt.value.elts)
+                    ]
+            return [stmt]
+
+        self.stmts = self.stmt_recurse(self.stmts, expand)
 
     def deadcode(self):
         prog = self.make_program()
@@ -590,8 +672,7 @@ class Inliner:
                     new_stmts.append(stmt)
             elif isinstance(stmt, ast.Expr):
                 val = stmt.value
-                if isinstance(val, ast.Name) or isinstance(
-                        val, ast.Str) or isinstance(val, ast.NameConstant):
+                if isinstance(val, (ast.Name, ast.Str, ast.NameConstant)):
                     change = True
                 else:
                     new_stmts.append(stmt)
@@ -600,11 +681,11 @@ class Inliner:
                     # HUGE HACK: assumes it's safe to replace try/except
                     # with just except block if except block not dead
                     assert len(stmt.handlers) == 1
-                    assert stmts.handlers[0].name is None
+                    assert stmt.handlers[0].name is None
                     change = True
-                    new_stmts.extend(stmts.handlers[0].body)
+                    new_stmts.extend(stmt.handlers[0].body)
                 else:
-                    new_stmts.append(stmt)
+                    new_stmts.extend(stmt.body)
             elif isinstance(stmt, ast.FunctionDef):
                 if len(stmt.body) == 0:
                     change = True
@@ -619,6 +700,11 @@ class Inliner:
                                        check_deadcode,
                                        blocks_also=True)
         return change
+
+    def remove_suffixes(self):
+        remover = RemoveSuffix()
+        for stmt in self.stmts:
+            remover.visit(stmt)
 
     def fixpoint(self, f):
         while f():
