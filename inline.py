@@ -11,11 +11,19 @@ import dis
 from utils import *
 
 
-class ExpandSelf(ast.NodeTransformer):
+class ExpandObjs(ast.NodeTransformer):
+    def __init__(self, globls, objs_to_inline):
+        self.globls = globls
+        self.objs_to_inline = objs_to_inline
+
     def visit_Attribute(self, attr):
-        if isinstance(attr.value, ast.Name) and \
-           attr.value.id[:4] == 'self':
-            return ast.Name(id=f'{attr.attr}__{attr.value.id}')
+        if isinstance(attr.value, ast.Name):
+            name = attr.value.id
+            if name in self.globls:
+                obj = self.globls[name]
+                if id(obj) in self.objs_to_inline:
+                    new_name = self.objs_to_inline[id(obj)]
+                    return ast.Name(id=f'{new_name}__{attr.attr}')
         return attr
 
 
@@ -52,14 +60,6 @@ class FindAssignments(ast.NodeVisitor):
         for t in assgn.targets:
             if isinstance(t, ast.Name):
                 self.names.add(t.id)
-
-
-class FindVarUse(ast.NodeVisitor):
-    def __init__(self):
-        self.names = set()
-
-    def visit_Name(self, name):
-        self.names.add(name.id)
 
 
 class FindCall(ast.NodeTransformer):
@@ -317,7 +317,7 @@ class Inliner:
                               orelse=[])
 
         init = parse_stmt(f'{ret_var} = []')
-        ast
+
         return [init, forloop]
 
     def make_program(self):
@@ -414,67 +414,40 @@ class Inliner:
         self.stmts = self.stmt_recurse(self.stmts, check_inline)
         return change
 
-    # def simplify(self):
-    #     new_stmts = []
-    #     change = False
-    #     for i, stmt in enumerate(self.stmts):
-    #         if isinstance(stmt, ast.Assign):
-
-    #         use_finder = FindVarUse()
-    #         for stmt2 in self.stmts[i + 1:]:
-    #             use_finder.visit(stmt2)
-
-    #         unused = False
-    #         for var in assgn_finder.names:
-    #             if var not in use_finder.names:
-    #                 unused = True
-    #                 break
-
-    #         if not unused:
-    #             new_stmts.append(stmt)
-    #         else:
-    #             print(
-    #             change = True
-
-    #     self.stmts = new_stmts
-    #     return change
-
     def expand_self(self):
         globls = {}
         exec(self.make_program(), globls, globls)
+
+        objs_to_inline = {}
+        for var, obj in globls.items():
+            if self.should_inline_obj(obj) and not inspect.isclass(obj) and \
+               not inspect.ismodule(obj):
+                if id(obj) not in objs_to_inline:
+                    objs_to_inline[id(obj)] = self.fresh()
 
         def self_assign(stmt):
             if isinstance(stmt, ast.Assign) and \
                isinstance(stmt.targets[0], ast.Name):
                 name = stmt.targets[0].id
                 obj = globls[name]
-                if hasattr(obj, '__class__') and \
-                   isinstance(obj.__class__, type) and \
-                   self.should_inline_obj(obj):
 
+                if id(obj) in objs_to_inline:
+                    new_name = objs_to_inline[id(obj)]
                     if isinstance(stmt.value, ast.Call):
-                        objvars = {
-                            var: ast.NameConstant(None)
-                            for var in vars(obj).keys()
-                        }
+                        return [
+                            ast.Assign(
+                                targets=[ast.Name(id=f'{new_name}__{k}')],
+                                value=ast.NameConstant(None))
+                            for k in vars(obj).keys()
+                        ]
                     else:
-                        assert isinstance(stmt.value, ast.Name)
-                        objvars = {
-                            var: ast.Name(id=f'{var}__{stmt.value.id}')
-                            for var in vars(obj).keys()
-                        }
-
-                    return [
-                        ast.Assign(targets=[ast.Name(id=f'{var}__{name}')],
-                                   value=value)
-                        for var, value in objvars.items()
-                    ]
+                        return []
 
             return [stmt]
 
         self.stmts = self.stmt_recurse(self.stmts, self_assign)
 
-        expander = ExpandSelf()
+        expander = ExpandObjs(globls, objs_to_inline)
         for stmt in self.stmts:
             expander.visit(stmt)
 
@@ -518,51 +491,56 @@ class Inliner:
         self.stmts = new_stmts
         return change
 
-        # toplevel_assignments = {}
-        # for stmt in self.stmts:
-        #     if isinstance(stmt, ast.Assign) and \
-        #        len(stmt.targets) == 1 and \
-        #        isinstance(stmt.targets[0], ast.Name):
-        #         k = stmt.targets[0].id
-        #         assert k not in toplevel_assignments
-        #         try:
-        #             # For some reason, exceptions don't occur until usage of
-        #             # truth is put into an if statement
-        #             if robust_eq(tracer.stores[k][0][0],
-        #                          tracer.stores[k][-1][0]):
-        #                 val_eq = True
-        #             else:
-        #                 val_eq = False
-        #         except Exception as e:
-        #             if debug:
-        #                 print('Could not compare for equality:')
-        #                 print('Inital', tracer.initial_values[k])
-        #                 print('Final', tracer.globls[k])
-        #                 print(e)
-        #                 print('=' * 30)
-        #             val_eq = False
+    def copy_propagation(self):
+        prog = self.make_program()
+        tracer = Tracer(prog, opcode=True)
+        tracer.trace()
 
-        #         if tracer.set_count[k] == 1 and val_eq and \
-        #            isinstance(stmt.value, \
-        #                       (ast.Num, ast.Str, ast.NameConstant, ast.Name)):
-        #             toplevel_assignments[k] = stmt
+        self.stmts = ast.parse(prog).body
 
-        # pprint(toplevel_assignments)
+        toplevel_assignments = {}
+        for stmt in self.stmts:
+            if isinstance(stmt, ast.Assign) and \
+               len(stmt.targets) == 1 and \
+               isinstance(stmt.targets[0], ast.Name):
+                k = stmt.targets[0].id
+                assert k not in toplevel_assignments
+                try:
+                    # For some reason, exceptions don't occur until usage of
+                    # truth is put into an if statement
+                    if robust_eq(tracer.stores[k][0][0],
+                                 tracer.stores[k][-1][0]):
+                        val_eq = True
+                    else:
+                        val_eq = False
+                except Exception as e:
+                    if debug:
+                        print('Could not compare for equality:')
+                        print('Inital', tracer.initial_values[k])
+                        print('Final', tracer.globls[k])
+                        print(e)
+                        print('=' * 30)
+                    val_eq = False
 
-        # new_stmts = []
-        # for i, stmt in enumerate(self.stmts):
-        #     if isinstance(stmt, ast.Assign) and \
-        #        isinstance(stmt.targets[0], ast.Name) and \
-        #        stmt.targets[0].id in toplevel_assignments:
-        #         name = stmt.targets[0].id
-        #         for stmt2 in self.stmts[i + 1:]:
-        #             replacer = Replace(name, toplevel_assignments[name].value)
-        #             replacer.visit(stmt2)
-        #             # if replacer.replaced:
-        #             #     print('Replaced', name, 'with',
-        #             #           a2s(toplevel_assignments[name].value))
-        #     else:
-        #         new_stmts.append(stmt)
+                if tracer.set_count[k] == 1 and val_eq and \
+                   isinstance(stmt.value, \
+                              (ast.Num, ast.Str, ast.NameConstant, ast.Name)):
+                    toplevel_assignments[k] = stmt
+
+        new_stmts = []
+        for i, stmt in enumerate(self.stmts):
+            if isinstance(stmt, ast.Assign) and \
+               isinstance(stmt.targets[0], ast.Name) and \
+               stmt.targets[0].id in toplevel_assignments:
+                name = stmt.targets[0].id
+                for stmt2 in self.stmts[i + 1:]:
+                    replacer = Replace(name, toplevel_assignments[name].value)
+                    replacer.visit(stmt2)
+                    # if replacer.replaced:
+                    #     print('Replaced', name, 'with',
+                    #           a2s(toplevel_assignments[name].value))
+            else:
+                new_stmts.append(stmt)
 
         self.stmts = new_stmts
 
