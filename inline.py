@@ -19,18 +19,6 @@ class ExpandSelf(ast.NodeTransformer):
         return attr
 
 
-class Replace(ast.NodeTransformer):
-    def __init__(self, src, dst):
-        self.src = src
-        self.dst = dst
-
-    def generic_visit(self, node):
-        if compare_ast(node, self.src):
-            return dst
-        else:
-            return node
-
-
 class Rename(ast.NodeTransformer):
     def __init__(self, src, dst):
         self.src = src
@@ -42,13 +30,16 @@ class Rename(ast.NodeTransformer):
         return name
 
 
-class BulkReplace(ast.NodeTransformer):
-    def __init__(self, bindings):
-        self.bindings = bindings
+class Replace(ast.NodeTransformer):
+    def __init__(self, name, value):
+        self.name = name
+        self.value = value
+        self.replaced = False
 
     def visit_Name(self, name):
-        if name.id in self.bindings:
-            return self.bindings[name.id]
+        if name.id == self.name:
+            self.replaced = True
+            return self.value
         else:
             return name
 
@@ -72,12 +63,13 @@ class FindVarUse(ast.NodeVisitor):
 
 
 class FindCall(ast.NodeTransformer):
-    def __init__(self, name, globls, locls):
+    def __init__(self, name, globls, locls, should_inline_obj):
         self.call_obj = None
         self.call_expr = None
         self.name = name
         self.globls = globls
         self.locls = locls
+        self.should_inline_obj = should_inline_obj
 
     def visit_Call(self, call_expr):
         try:
@@ -86,19 +78,13 @@ class FindCall(ast.NodeTransformer):
             print('ERROR', a2s(call_expr))
             raise
 
-        module = inspect.getmodule(call_obj)
+        if self.should_inline_obj(call_obj):
+            if self.call_expr is not None:
+                raise Exception("Multiple valid call expr")
 
-        if module is not None:
-            module_parts = module.__name__.split('.')
-            if module_parts[0:2] == ['seaborn', 'categorical'] or \
-               module_parts[0] == 'test':
-
-                if self.call_expr is not None:
-                    raise Exception("Multiple valid call expr")
-
-                self.call_expr = call_expr
-                self.call_obj = call_obj
-                return ast.Name(id=self.name)
+            self.call_expr = call_expr
+            self.call_obj = call_obj
+            return ast.Name(id=self.name)
 
         return call_expr
 
@@ -174,6 +160,16 @@ class Inliner:
         v = 'var{}'.format(self.counter)
         self.counter += 1
         return v
+
+    def should_inline_obj(self, obj):
+        module = inspect.getmodule(obj)
+
+        if module is not None:
+            module_parts = module.__name__.split('.')
+            return module_parts[0:2] == ['seaborn', 'categorical'] or \
+                module_parts[0] == 'test'
+
+        return False
 
     def inline_constructor(self, call_obj, call_expr, ret_var):
         #         self.new_stmts.append(ast.Assign(
@@ -367,7 +363,8 @@ class Inliner:
             new_stmts = []
 
             comp_ret_var = self.fresh()
-            comp_call_finder = FindCall(self.fresh(), globls, globls)
+            comp_call_finder = FindCall(self.fresh(), globls, globls,
+                                        self.should_inline_obj)
             comp_finder = FindComprehension(comp_call_finder, comp_ret_var)
             comp_finder.visit(stmt)
             if comp_finder.comp is not None:
@@ -380,7 +377,8 @@ class Inliner:
             self.counter -= 2
 
             ret_var = self.fresh()
-            call_finder = FindCall(ret_var, globls, globls)
+            call_finder = FindCall(ret_var, globls, globls,
+                                   self.should_inline_obj)
             call_finder.visit(stmt)
 
             if call_finder.call_expr is not None:
@@ -442,6 +440,40 @@ class Inliner:
     #     return change
 
     def expand_self(self):
+        globls = {}
+        exec(self.make_program(), globls, globls)
+
+        def self_assign(stmt):
+            if isinstance(stmt, ast.Assign) and \
+               isinstance(stmt.targets[0], ast.Name):
+                name = stmt.targets[0].id
+                obj = globls[name]
+                if hasattr(obj, '__class__') and \
+                   isinstance(obj.__class__, type) and \
+                   self.should_inline_obj(obj):
+
+                    if isinstance(stmt.value, ast.Call):
+                        objvars = {
+                            var: ast.NameConstant(None)
+                            for var in vars(obj).keys()
+                        }
+                    else:
+                        assert isinstance(stmt.value, ast.Name)
+                        objvars = {
+                            var: ast.Name(id=f'{var}__{stmt.value.id}')
+                            for var in vars(obj).keys()
+                        }
+
+                    return [
+                        ast.Assign(targets=[ast.Name(id=f'{var}__{name}')],
+                                   value=value)
+                        for var, value in objvars.items()
+                    ]
+
+            return [stmt]
+
+        self.stmts = self.stmt_recurse(self.stmts, self_assign)
+
         expander = ExpandSelf()
         for stmt in self.stmts:
             expander.visit(stmt)
@@ -463,39 +495,74 @@ class Inliner:
         new_stmts = imports_dedup + new_stmts
         self.stmts = new_stmts
 
-    def test(self):
+    def unread_vars(self, debug=False):
         prog = self.make_program()
         tracer = Tracer(prog, opcode=True)
         tracer.trace()
 
         self.stmts = ast.parse(prog).body
 
-        toplevel_assignments = set()
-        for stmt in self.stmts:
-            if isinstance(stmt, ast.Assign) and \
-               len(stmt.targets) == 1 and \
-               isinstance(stmt.targets[0], ast.Name):
-                toplevel_assignments.add(stmt.targets[0].id)
-
-        only_once_vars = set(
-            [name for name, count in tracer.set_count.items() if count == 1])
-        new_bindings = {
-            name: obj_to_ast(tracer.globls[name])
-            for name in only_once_vars
-            if can_convert_obj_to_ast(tracer.globls[name])
-            and name in toplevel_assignments
-        }
-
+        change = False
         new_stmts = []
-        replacer = BulkReplace(new_bindings)
         for stmt in self.stmts:
-            if isinstance(stmt, ast.Assign) and \
-               isinstance(stmt.targets[0], ast.Name) and \
-               stmt.targets[0].id in new_bindings:
-                pass
+            if isinstance(stmt, ast.Assign) and len(stmt.targets) == 1 and \
+               isinstance(stmt.targets[0], ast.Name):
+                name = stmt.targets[0].id
+                if len(tracer.reads[name]) == 0:
+                    change = True
+                else:
+                    #print(tracer.reads[name])
+                    new_stmts.append(stmt)
             else:
-                replacer.visit(stmt)
                 new_stmts.append(stmt)
+        self.stmts = new_stmts
+        return change
+
+        # toplevel_assignments = {}
+        # for stmt in self.stmts:
+        #     if isinstance(stmt, ast.Assign) and \
+        #        len(stmt.targets) == 1 and \
+        #        isinstance(stmt.targets[0], ast.Name):
+        #         k = stmt.targets[0].id
+        #         assert k not in toplevel_assignments
+        #         try:
+        #             # For some reason, exceptions don't occur until usage of
+        #             # truth is put into an if statement
+        #             if robust_eq(tracer.stores[k][0][0],
+        #                          tracer.stores[k][-1][0]):
+        #                 val_eq = True
+        #             else:
+        #                 val_eq = False
+        #         except Exception as e:
+        #             if debug:
+        #                 print('Could not compare for equality:')
+        #                 print('Inital', tracer.initial_values[k])
+        #                 print('Final', tracer.globls[k])
+        #                 print(e)
+        #                 print('=' * 30)
+        #             val_eq = False
+
+        #         if tracer.set_count[k] == 1 and val_eq and \
+        #            isinstance(stmt.value, \
+        #                       (ast.Num, ast.Str, ast.NameConstant, ast.Name)):
+        #             toplevel_assignments[k] = stmt
+
+        # pprint(toplevel_assignments)
+
+        # new_stmts = []
+        # for i, stmt in enumerate(self.stmts):
+        #     if isinstance(stmt, ast.Assign) and \
+        #        isinstance(stmt.targets[0], ast.Name) and \
+        #        stmt.targets[0].id in toplevel_assignments:
+        #         name = stmt.targets[0].id
+        #         for stmt2 in self.stmts[i + 1:]:
+        #             replacer = Replace(name, toplevel_assignments[name].value)
+        #             replacer.visit(stmt2)
+        #             # if replacer.replaced:
+        #             #     print('Replaced', name, 'with',
+        #             #           a2s(toplevel_assignments[name].value))
+        #     else:
+        #         new_stmts.append(stmt)
 
         self.stmts = new_stmts
 
