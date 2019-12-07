@@ -9,6 +9,9 @@ from astpretty import pprint as pprintast
 from pprint import pprint
 import dis
 from utils import *
+import copy
+import typing
+import os
 
 SEP = '___'
 
@@ -33,6 +36,25 @@ class Rename(ast.NodeTransformer):
     def __init__(self, src, dst):
         self.src = src
         self.dst = dst
+
+    def visit_FunctionDef(self, fdef):
+        if fdef.name == self.src:
+            fdef.name = self.dst
+            self.generic_visit(fdef)
+        else:
+            args = fdef.args
+            arg_names = set()
+
+            for arg in args.args:
+                arg_names.add(arg.arg)
+            if args.vararg is not None:
+                arg_names.add(args.vararg.arg)
+            if args.kwarg is not None:
+                arg_names.add(args.kwarg.arg)
+
+            if self.src not in arg_names:
+                self.generic_visit(fdef)
+        return fdef
 
     def visit_Name(self, name):
         if name.id == self.src:
@@ -87,6 +109,8 @@ class FindCall(ast.NodeTransformer):
             self.call_expr = call_expr
             self.call_obj = call_obj
             return ast.Name(id=self.name)
+        else:
+            self.generic_visit(call_expr)
 
         return call_expr
 
@@ -94,28 +118,96 @@ class FindCall(ast.NodeTransformer):
 class ReplaceReturn(ast.NodeTransformer):
     def __init__(self, name):
         self.name = name
-
-    def visit_Return(self, stmt):
-        if_stmt = parse_stmt(
+        self.toplevel = True
+        self.found_return = False
+        self.if_wrapper = parse_stmt(
             textwrap.dedent("""
         if "{name}" not in locals() and "{name}" not in globals():
-            {name} = None
-        """.format(name=self.name)))
-        if_stmt.body[0].value = stmt.value
+            pass
+            """.format(name=self.name)))
+
+    def visit_Return(self, stmt):
+        if_stmt = copy.deepcopy(self.if_wrapper)
+        if_stmt.body[0] = ast.Assign(targets=[ast.Name(id=self.name)],
+                                     value=stmt.value)
+        self.found_return = True
         return if_stmt
+
+    def visit_FunctionDef(self, fdef):
+        # no recurse to avoid messing up inline functions
+        if self.toplevel:
+            self.toplevel = False
+            self.generic_visit(fdef)
+        return fdef
+
+    def generic_visit(self, node):
+        for field, old_value in ast.iter_fields(node):
+            if isinstance(old_value, list):
+                new_values = []
+                for i, cur_value in enumerate(old_value):
+                    if isinstance(cur_value, ast.AST):
+                        value = self.visit(cur_value)
+
+                        if self.found_return:
+                            new_values.append(value)
+                            if i < len(old_value) - 1:
+                                if_stmt = copy.deepcopy(self.if_wrapper)
+                                if_stmt.body = old_value[i + 1:]
+                                new_values.append(if_stmt)
+                            break
+
+                        if value is None:
+                            continue
+                        elif not isinstance(value, ast.AST):
+                            new_values.extend(value)
+                            continue
+
+                    new_values.append(value)
+                old_value[:] = new_values
+            elif isinstance(old_value, ast.AST):
+                new_node = self.visit(old_value)
+                if new_node is None:
+                    delattr(node, field)
+                else:
+                    setattr(node, field, new_node)
+
+        return node
 
 
 class ReplaceSelf(ast.NodeTransformer):
-    def __init__(self, cls):
-        self.cls = ast.Name(id=cls.__name__)
+    def __init__(self, cls, globls):
+        self.cls = cls
+        self.globls = globls
 
     def visit_Call(self, expr):
         if isinstance(expr.func, ast.Attribute) and \
             isinstance(expr.func.value, ast.Name) and \
             expr.func.value.id == 'self':
-            expr.args.insert(0, ast.Name(id='self'))
-            expr.func.value = self.cls
+
+            expr.func.value = ast.Name(id=self.cls.__name__)
+
+            # If the method being called is bound when directly accessing
+            # it on the class, it's probably a @classmethod, and we shouldn't
+            # add `self` as an argument
+            if not inspect.ismethod(getattr(self.cls, expr.func.attr)):
+                expr.args.insert(0, ast.Name(id='self'))
+
         return expr
+
+
+class ReplaceSuper(ast.NodeTransformer):
+    def __init__(self, cls):
+        self.cls = cls
+
+    def visit_Call(self, call):
+        if isinstance(call.func, ast.Attribute) and \
+           isinstance(call.func.value, ast.Call) and \
+           isinstance(call.func.value.func, ast.Name) and \
+           call.func.value.func.id == 'super':
+            call.func.value = ast.Name(id=self.cls.__name__)
+            call.args.insert(0, ast.Name(id='self'))
+        self.generic_visit(call)
+        return call
 
 
 class UsedGlobals(ast.NodeVisitor):
@@ -162,8 +254,9 @@ class RemoveSuffix(ast.NodeTransformer):
 
 
 class Inliner:
-    def __init__(self, stmts):
-        self.stmts = stmts
+    def __init__(self, func, modules):
+        self.stmts = ast.parse(inspect.getsource(func)).body[0].body
+        self.modules = [m.split('.') for m in modules]
         self.counter = 0
 
     def fresh(self):
@@ -171,40 +264,59 @@ class Inliner:
         self.counter += 1
         return v
 
+    def is_source_obj(self, obj):
+        try:
+            if os.path.basename(inspect.getfile(obj))[:6] == 'inline':
+                return True
+        except TypeError:
+            return False
+
     def should_inline_obj(self, obj):
         module = inspect.getmodule(obj)
 
+        if self.is_source_obj(obj):
+            return True
+
         if module is not None:
             module_parts = module.__name__.split('.')
-            return module_parts[0:2] == ['seaborn', 'categorical'] or \
-                module_parts[0] == 'test'
+            return any([
+                module_parts[:len(target_mod)] == target_mod
+                for target_mod in self.modules
+            ])
 
         return False
 
-    def inline_constructor(self, call_obj, call_expr, ret_var):
-        #         self.new_stmts.append(ast.Assign(
-        #             targets=[ast.Name(id=ret_var)], value=ast.parse("DotMap()").body[0].value))
+    def inline_constructor(self, call_obj, call_expr, ret_var, globls):
         cls = call_obj.__name__
         make_obj = ast.Assign(targets=[ast.Name(id=ret_var)],
                               value=parse_expr(f'{cls}.__new__({cls})'))
         call_expr.args.insert(0, ast.Name(id=ret_var))
         return [make_obj] + self.inline_function(
-            call_obj.__init__, call_expr, ret_var, cls=call_obj)
+            call_obj.__init__, call_expr, ret_var, globls, cls=call_obj)
 
     def expand_method(self, call_obj, call_expr, ret_var):
         obj = call_expr.func.value
-        cls = call_obj.__self__.__class__
-        call_expr.func = ast.Attribute(value=ast.Name(id=cls.__name__),
-                                       attr=call_expr.func.attr)
+        bound_obj = call_obj.__self__
+        if inspect.isclass(bound_obj):
+            cls = bound_obj
+            call_expr.func = ast.Attribute(value=ast.Attribute(
+                value=ast.Name(id=cls.__name__), attr=call_expr.func.attr),
+                                           attr='__func__')
+        else:
+            cls = bound_obj.__class__
+            call_expr.func = ast.Attribute(value=ast.Name(id=cls.__name__),
+                                           attr=call_expr.func.attr)
         call_expr.args.insert(0, obj)
+        return self.generate_imports(cls.__name__, cls)
 
     def inline_function(self,
                         call_obj,
                         call_expr,
                         ret_var,
+                        globls,
                         cls=None,
                         debug=False):
-        new_stmts = []
+        new_stmts = [ast.Expr(ast.Str("__comment: " + a2s(call_expr)))]
         is_special_method = hasattr(call_obj, '__objclass__')
         if is_special_method:
             # TODO: make this work for all slot wrappers
@@ -223,12 +335,21 @@ class Inliner:
         args_def = f_ast.args
 
         args = call_expr.args[:]
-        kwargs = {arg.arg: arg.value for arg in call_expr.keywords}
+        kwargs = {
+            arg.arg: arg.value
+            for arg in call_expr.keywords if arg.arg is not None
+        }
 
         nodefault = len(args_def.args) - len(args_def.defaults)
 
+        if len(args_def.args) > 0 and args_def.args[0].arg == 'self' and \
+           isinstance(call_expr.func, ast.Attribute) and \
+           isinstance(call_expr.func.value, ast.Name):
+            cls = globls[call_expr.func.value.id]
+            ReplaceSuper(cls.__bases__[0]).visit(f_ast)
+
         if cls is not None:
-            ReplaceSelf(cls).visit(f_ast)
+            ReplaceSelf(cls, globls).visit(f_ast)
 
         def make_unique_name(name):
             return f'{name}{SEP}{f_ast.name}'
@@ -239,27 +360,62 @@ class Inliner:
         for name in assgn_finder.names:
             if name not in arg_names:
                 unique_name = make_unique_name(name)
-                Rename(name, unique_name).visit(f_ast)
+                renamer = Rename(name, unique_name)
+                for stmt in f_ast.body:
+                    renamer.visit(stmt)
+
+        # if call_expr has f(**kwargs)
+        kwarg_dict = [arg for arg in call_expr.keywords if arg.arg is None]
+        kwarg_dict = kwarg_dict[0].value.id if len(kwarg_dict) > 0 else None
+        if kwarg_dict is not None:
+            kwarg_dict_name = make_unique_name(kwarg_dict)
+            renamer = Rename(kwarg_dict, kwarg_dict_name)
+            for stmt in f_ast.body:
+                renamer.visit(stmt)
+
+        if kwarg_dict is not None:
+            new_stmts.append(
+                ast.Assign(targets=[ast.Name(id=kwarg_dict_name)],
+                           value=ast.Name(id=kwarg_dict)))
 
         # Add argument bindings
         for i, (arg, default) in enumerate(
                 zip(args_def.args,
                     [None for _ in range(nodefault)] + args_def.defaults)):
+            # arg is
             k = arg.arg
 
             # Get value corresponding to argument name
             if i < len(call_expr.args):
                 v = call_expr.args[i]
+            elif k in kwargs:
+                v = kwargs.pop(k)
             else:
-                v = kwargs.pop(k) if k in kwargs else default
+                v = default
 
             # Rename to unique var name
             uniq_k = make_unique_name(k)
-            Rename(k, uniq_k).visit(f_ast)
+            renamer = Rename(k, uniq_k)
+            for stmt in f_ast.body:
+                renamer.visit(stmt)
 
-            new_stmts.append(ast.Assign(targets=[ast.Name(id=uniq_k)], value=v))
+            if v is default and kwarg_dict is not None:
+                stmt = parse_stmt(
+                    textwrap.dedent(f"""
+                if "{k}" in {kwarg_dict_name}:
+                    {uniq_k} = {kwarg_dict_name}["{k}"]
+                else:
+                    {uniq_k} = None"""))
+                stmt.orelse[0].value = default
+            else:
+                stmt = ast.Assign(targets=[ast.Name(id=uniq_k)], value=v)
 
-        # TODO: make this work for *args
+            new_stmts.append(stmt)
+
+        if args_def.vararg is not None:
+            new_stmts.append(
+                ast.Assign(targets=[ast.Name(id=args_def.vararg.arg)],
+                           value=ast.List(args[len(args_def.args):])))
 
         if args_def.kwarg is not None:
             kwkeys, kwvalues = unzip(kwargs.items())
@@ -270,43 +426,52 @@ class Inliner:
 
         # Replace returns with assignment
         f_ast.body.append(parse_stmt("return None"))
-        ReplaceReturn(ret_var).visit(f_ast)
+        while True:
+            replacer = ReplaceReturn(ret_var)
+            replacer.visit(f_ast)
+            if not replacer.found_return:
+                break
 
         # Inline function body
         new_stmts.extend(f_ast.body)
 
-        if not is_special_method:
+        if not is_special_method and not self.is_source_obj(call_obj):
             used_globals = UsedGlobals(call_obj.__globals__)
             used_globals.visit(f_ast)
+            used = used_globals.used
+
+            if call_obj.__closure__ is not None and len(
+                    call_obj.__closure__) > 0:
+                cell = call_obj.__closure__[0]
+                for var, cell in zip(call_obj.__code__.co_freevars,
+                                     call_obj.__closure__):
+                    used[var] = cell.cell_contents
+
             imports = []
             for name, globl in used_globals.used.items():
-                if inspect.ismodule(globl):
-                    alias = name if globl.__name__ != name else None
-                    new_stmts.insert(
-                        0,
-                        ast.Import(
-                            [ast.alias(name=globl.__name__, asname=alias)]))
-                else:
-                    mod = inspect.getmodule(globl)
-                    if mod is None:
-                        mod_value = obj_to_ast(globl)
-                        new_stmts.insert(
-                            0,
-                            ast.Assign(targets=[ast.Name(id=name)],
-                                       value=mod_value))
-                    elif mod == __builtins__:
-                        pass
-                    else:
-                        new_stmts.insert(
-                            0,
-                            ast.ImportFrom(
-                                module=mod.__name__,
-                                names=[ast.alias(name=name, asname=None)],
-                                level=0))
+                imprt = self.generate_imports(name, globl)
+                if imprt is not None:
+                    new_stmts.insert(0, imprt)
 
         return new_stmts
 
-    def expand_comprehension(self, comp, ret_var, call_finder):
+    def generate_imports(self, name, globl):
+        if inspect.ismodule(globl):
+            alias = name if globl.__name__ != name else None
+            return ast.Import([ast.alias(name=globl.__name__, asname=alias)])
+        else:
+            mod = inspect.getmodule(globl)
+            if mod is None or mod is typing:
+                mod_value = obj_to_ast(globl)
+                return ast.Assign(targets=[ast.Name(id=name)], value=mod_value)
+            elif mod == __builtins__:
+                return None
+            else:
+                return ast.ImportFrom(module=mod.__name__,
+                                      names=[ast.alias(name=name, asname=None)],
+                                      level=0)
+
+    def expand_comprehension(self, comp, ret_var, call_finder, globls):
         forloop = None
         for gen in reversed(comp.generators):
             if forloop is None:
@@ -314,7 +479,7 @@ class Inliner:
                 body.extend(
                     self.inline_function(call_finder.call_obj,
                                          call_finder.call_expr,
-                                         call_finder.name))
+                                         call_finder.name, globls))
                 append = parse_expr(f'{ret_var}.append()')
                 append.args = [comp.elt]
                 body.append(ast.Expr(append))
@@ -330,8 +495,9 @@ class Inliner:
 
         return [init, forloop]
 
-    def make_program(self):
-        return '\n'.join([a2s(stmt).strip() for stmt in self.stmts])
+    def make_program(self, comments=False):
+        return '\n'.join(
+            [a2s(stmt, comments=comments).strip() for stmt in self.stmts])
 
     def stmt_recurse(self, stmts, f, blocks_also=False):
         def aux(stmts):
@@ -345,6 +511,9 @@ class Inliner:
                     stmt.body = aux(stmt.body)
                     new_stmts.extend(f(stmt) if blocks_also else [stmt])
                 elif isinstance(stmt, ast.FunctionDef):
+                    stmt.body = aux(stmt.body)
+                    new_stmts.extend(f(stmt) if blocks_also else [stmt])
+                elif isinstance(stmt, ast.With):
                     stmt.body = aux(stmt.body)
                     new_stmts.extend(f(stmt) if blocks_also else [stmt])
                 else:
@@ -361,7 +530,7 @@ class Inliner:
         # For now, just only use globals
         globls = {}
         try:
-            exec(self.make_program(), globls, globls)
+            compile_and_exec(self.make_program(), globls)
         except Exception:
             print(self.make_program())
             raise
@@ -396,21 +565,23 @@ class Inliner:
                 call_obj = call_finder.call_obj
 
                 if inspect.ismethod(call_obj):
-                    # print('expand_method', a2s(call_expr))
-                    self.expand_method(call_obj, call_expr, ret_var)
+                    imprt = self.expand_method(call_obj, call_expr, ret_var)
+                    if imprt is not None:
+                        new_stmts.insert(0, imprt)
                     new_stmts.append(
                         ast.Assign(targets=[ast.Name(id=ret_var)],
                                    value=call_expr))
                 elif inspect.isfunction(call_obj):
-                    # print('inline_function', a2s(call_expr))
                     new_stmts.extend(
                         self.inline_function(call_obj,
                                              call_expr,
                                              ret_var,
+                                             globls,
                                              debug=debug))
                 elif inspect.isclass(call_obj):
                     new_stmts.extend(
-                        self.inline_constructor(call_obj, call_expr, ret_var))
+                        self.inline_constructor(call_obj, call_expr, ret_var,
+                                                globls))
                 else:
                     raise NotYetImplemented
 
@@ -480,7 +651,7 @@ class Inliner:
 
     def unread_vars(self, debug=False):
         prog = self.make_program()
-        tracer = Tracer(prog, opcode=True)
+        tracer = Tracer(prog, opcode=True, debug=debug)
         tracer.trace()
 
         self.stmts = ast.parse(prog).body
@@ -494,7 +665,19 @@ class Inliner:
                 if len(tracer.reads[name]) == 0:
                     change = True
                 else:
-                    #print(tracer.reads[name])
+                    new_stmts.append(stmt)
+
+            elif isinstance(stmt, ast.ImportFrom):
+                aliases = [
+                    alias for alias in stmt.names
+                    if len(tracer.reads[alias.name if alias.
+                                        asname is None else alias.asname]) > 0
+                ]
+                if len(aliases) != len(stmt.names):
+                    change = True
+
+                if len(aliases) > 0:
+                    stmt.names = aliases
                     new_stmts.append(stmt)
             else:
                 new_stmts.append(stmt)
@@ -546,9 +729,6 @@ class Inliner:
                 for stmt2 in self.stmts[i + 1:]:
                     replacer = Replace(name, toplevel_assignments[name].value)
                     replacer.visit(stmt2)
-                    # if replacer.replaced:
-                    #     print('Replaced', name, 'with',
-                    #           a2s(toplevel_assignments[name].value))
             else:
                 new_stmts.append(stmt)
 
@@ -650,11 +830,15 @@ class Inliner:
         def check_deadcode(stmt):
             nonlocal change
 
-            new_stmts = []
+            if isinstance(stmt, ast.Expr) and isinstance(stmt.value, ast.Str) and \
+               '__comment' in stmt.value.s:
+                return [stmt]
+
             if is_dead(stmt):
                 change = True
                 return []
 
+            new_stmts = []
             if isinstance(stmt, ast.If):
                 # TODO: assumes pure conditions
                 if len(stmt.body) == 0 or is_dead(stmt.body[0]):
@@ -702,6 +886,7 @@ class Inliner:
         return change
 
     def remove_suffixes(self):
+        # TODO: make this robust by avoiding name collisions
         remover = RemoveSuffix()
         for stmt in self.stmts:
             remover.visit(stmt)

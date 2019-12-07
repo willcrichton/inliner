@@ -9,6 +9,16 @@ from copy import deepcopy
 from pprint import pprint
 import pandas as pd
 import numpy as np
+import typing
+from tempfile import NamedTemporaryFile
+from astor.code_gen import SourceGenerator
+
+
+def compile_and_exec(code, globls):
+    with NamedTemporaryFile(delete=False, prefix='inline') as f:
+        f.write(code.encode('utf-8'))
+        f.flush()
+        exec(compile(code, f.name, 'exec'), globls)
 
 
 # https://blog.hakril.net/articles/2-understanding-python-execution-tracer.html
@@ -30,8 +40,17 @@ class ValueUnknown:
     pass
 
 
+class FindFunctions(ast.NodeVisitor):
+    def __init__(self):
+        self.fns = []
+
+    def visit_FunctionDef(self, fdef):
+        self.fns.append(fdef.name)
+        self.generic_visit(fdef)
+
+
 class Tracer:
-    def __init__(self, prog, opcode=False):
+    def __init__(self, prog, opcode=False, debug=False):
         self.prog = prog
         self.reads = defaultdict(list)
         self.stores = defaultdict(list)
@@ -40,6 +59,13 @@ class Tracer:
         self.opcode = opcode
         self.globls = {}
         self._last_store = None
+        self.debug = debug
+
+        # finder = FindFunctions()
+        # for stmt in ast.parse(prog).body:
+        #     finder.visit(stmt)
+
+        # self.fns = finder.fns
 
     def get_value(self, frame, name):
         # Lookup value in relevant store
@@ -59,7 +85,7 @@ class Tracer:
         return value
 
     def _trace_fn(self, frame, event, arg):
-        if self.opcode and frame.f_code.co_filename == 'inline':
+        if self.opcode and frame.f_code.co_filename == '__inline':
             frame.f_trace_opcodes = True
         if event == 'opcode':
             # The effect of a store appearing in f_locals/globals seems
@@ -72,30 +98,49 @@ class Tracer:
 
             instr = FrameAnalyzer(frame).current_instr()
             name = instr.argval
-            if instr.opname == 'STORE_NAME':
+
+            if self.debug:
+                print(instr.opname, str(instr.argval)[:30])
+
+            if instr.opname in ['STORE_NAME', 'STORE_FAST', 'STORE_GLOBAL']:
                 self._last_store = (name, frame.f_lineno)
                 self.set_count[name] += 1
-            elif instr.opname == 'LOAD_NAME':
+            elif instr.opname in ['LOAD_NAME', 'LOAD_FAST', 'LOAD_GLOBAL']:
                 self.reads[name].append((self.get_value(frame,
                                                         name), frame.f_lineno))
-
         elif event == 'line':
-            if frame.f_code.co_filename == 'inline':
+            if frame.f_code.co_filename == '__inline':
                 self.execed_lines[frame.f_lineno] += 1
         return self._trace_fn
 
     def trace(self):
         try:
-            prog_bytecode = compile(self.prog, 'inline', 'exec')
+            prog_bytecode = compile(self.prog, '__inline', 'exec')
+            sys.settrace(self._trace_fn)
+            exec(prog_bytecode, self.globls, self.globls)
+            sys.settrace(None)
         except Exception:
             print(self.prog)
             raise
-        sys.settrace(self._trace_fn)
-        exec(prog_bytecode, self.globls, self.globls)
-        sys.settrace(None)
 
 
-a2s = astor.to_source
+COMMENTS = False
+
+
+class SourceGeneratorWithComments(SourceGenerator):
+    def visit_Str(self, node):
+        global COMMENTS
+        if COMMENTS and '__comment' in node.s:
+            self.write('\n#' + node.s[10:])
+        else:
+            super().visit_Str(node)
+
+
+def a2s(a, comments=False):
+    global COMMENTS
+    COMMENTS = comments
+    return astor.to_source(a,
+                           source_generator_class=SourceGeneratorWithComments)
 
 
 def parse_stmt(s):
@@ -142,6 +187,13 @@ def obj_to_ast(obj):
     elif isinstance(obj, str):
         return ast.Str(obj)
     elif obj is None:
+        return ast.NameConstant(None)
+    elif isinstance(obj, (typing._GenericAlias, typing._SpecialForm)):
+        # TODO: types
+        # issue was in pandas, where importing pandas._typing.Axis would
+        # resolve module to typing, attempt to do "from typing import Axis"
+        return ast.NameConstant(None)
+    elif callable(obj):
         return ast.NameConstant(None)
     else:
         raise ObjConversionException(f"No converter for {obj}")
