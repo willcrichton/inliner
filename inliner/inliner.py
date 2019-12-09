@@ -3,7 +3,6 @@ import inspect
 from collections import defaultdict
 from iterextras import unzip
 import textwrap
-from astpretty import pprint as pprintast
 import os
 import typing
 
