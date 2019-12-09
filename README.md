@@ -1,4 +1,5 @@
 # Inliner
+[![Build Status](https://travis-ci.com/willcrichton/inliner.svg?branch=master)](https://travis-ci.com/willcrichton/inliner)
 
 ## Setup
 
