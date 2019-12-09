@@ -12,6 +12,11 @@ import numpy as np
 import typing
 from tempfile import NamedTemporaryFile
 from astor.code_gen import SourceGenerator
+from astor.source_repr import split_lines
+import textwrap
+import re
+
+SEP = '___'
 
 
 def compile_and_exec(code, globls):
@@ -47,6 +52,14 @@ class FindFunctions(ast.NodeVisitor):
     def visit_FunctionDef(self, fdef):
         self.fns.append(fdef.name)
         self.generic_visit(fdef)
+
+
+class RemoveSuffix(ast.NodeTransformer):
+    def visit_Name(self, name):
+        parts = name.id.split(SEP)
+        if len(parts) > 1:
+            name.id = parts[0]
+        return name
 
 
 class Tracer:
@@ -130,8 +143,16 @@ COMMENTS = False
 class SourceGeneratorWithComments(SourceGenerator):
     def visit_Str(self, node):
         global COMMENTS
-        if COMMENTS and '__comment' in node.s:
-            self.write('\n#' + node.s[10:])
+        if COMMENTS and \
+           '__comment' in node.s:
+            s = node.s[10:]
+            call = parse_expr(textwrap.dedent(s))
+            RemoveSuffix().visit(call)
+            s = a2s(call)
+            indent = self.indent_with * self.indentation
+            comment = '\n'.join([f'{indent}# {part}'
+                                 for part in s.split('\n')][:-1])
+            self.write('#\n' + comment)
         else:
             super().visit_Str(node)
 
@@ -139,8 +160,9 @@ class SourceGeneratorWithComments(SourceGenerator):
 def a2s(a, comments=False):
     global COMMENTS
     COMMENTS = comments
-    return astor.to_source(a,
+    outp = astor.to_source(a,
                            source_generator_class=SourceGeneratorWithComments)
+    return re.sub(r'^\s*#\s*\n', '\n', outp, flags=re.MULTILINE)
 
 
 def parse_stmt(s):

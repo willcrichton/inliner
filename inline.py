@@ -13,8 +13,6 @@ import copy
 import typing
 import os
 
-SEP = '___'
-
 
 class ExpandObjs(ast.NodeTransformer):
     def __init__(self, globls, objs_to_inline):
@@ -235,6 +233,16 @@ class FindComprehension(ast.NodeTransformer):
             return comp
 
 
+class FindIfExp(ast.NodeTransformer):
+    def __init__(self, ret_var):
+        self.ret_var = ret_var
+        self.ifexp = None
+
+    def visit_IfExp(self, ifexp):
+        self.ifexp = ifexp
+        return ast.Name(id=self.ret_var)
+
+
 class CollectLineNumbers(ast.NodeVisitor):
     def __init__(self):
         self.linenos = set()
@@ -243,14 +251,6 @@ class CollectLineNumbers(ast.NodeVisitor):
         if hasattr(node, 'lineno'):
             self.linenos.add(node.lineno)
         super().generic_visit(node)
-
-
-class RemoveSuffix(ast.NodeTransformer):
-    def visit_Name(self, name):
-        parts = name.id.split(SEP)
-        if len(parts) > 1:
-            name.id = parts[0]
-        return name
 
 
 class Inliner:
@@ -288,10 +288,13 @@ class Inliner:
 
     def inline_constructor(self, call_obj, call_expr, ret_var, globls):
         cls = call_obj.__name__
+        imprt = ast.ImportFrom(module=inspect.getmodule(call_obj).__name__,
+                               level=0,
+                               names=[ast.alias(name=cls, asname=None)])
         make_obj = ast.Assign(targets=[ast.Name(id=ret_var)],
                               value=parse_expr(f'{cls}.__new__({cls})'))
         call_expr.args.insert(0, ast.Name(id=ret_var))
-        return [make_obj] + self.inline_function(
+        return [imprt, make_obj] + self.inline_function(
             call_obj.__init__, call_expr, ret_var, globls, cls=call_obj)
 
     def expand_method(self, call_obj, call_expr, ret_var):
@@ -309,6 +312,9 @@ class Inliner:
         call_expr.args.insert(0, obj)
         return self.generate_imports(cls.__name__, cls)
 
+    def inline_generator_function(self, call_obj, call_expr, ret_var, globls):
+        raise Exception("TODO")
+
     def inline_function(self,
                         call_obj,
                         call_expr,
@@ -316,7 +322,7 @@ class Inliner:
                         globls,
                         cls=None,
                         debug=False):
-        new_stmts = [ast.Expr(ast.Str("__comment: " + a2s(call_expr)))]
+        new_stmts = [ast.Expr(ast.Str("__comment: " + a2s(call_expr).strip()))]
         is_special_method = hasattr(call_obj, '__objclass__')
         if is_special_method:
             # TODO: make this work for all slot wrappers
@@ -334,18 +340,13 @@ class Inliner:
         f_ast = parse_stmt(f_source)
         args_def = f_ast.args
 
-        args = call_expr.args[:]
-        kwargs = {
-            arg.arg: arg.value
-            for arg in call_expr.keywords if arg.arg is not None
-        }
-
-        nodefault = len(args_def.args) - len(args_def.defaults)
-
         if len(args_def.args) > 0 and args_def.args[0].arg == 'self' and \
            isinstance(call_expr.func, ast.Attribute) and \
            isinstance(call_expr.func.value, ast.Name):
-            cls = globls[call_expr.func.value.id]
+
+            if cls is None:
+                cls = globls[call_expr.func.value.id]
+
             ReplaceSuper(cls.__bases__[0]).visit(f_ast)
 
         if cls is not None:
@@ -353,6 +354,8 @@ class Inliner:
 
         def make_unique_name(name):
             return f'{name}{SEP}{f_ast.name}'
+
+        args = call_expr.args[:]
 
         assgn_finder = FindAssignments()
         assgn_finder.visit(f_ast)
@@ -364,34 +367,57 @@ class Inliner:
                 for stmt in f_ast.body:
                     renamer.visit(stmt)
 
-        # if call_expr has f(**kwargs)
-        kwarg_dict = [arg for arg in call_expr.keywords if arg.arg is None]
-        kwarg_dict = kwarg_dict[0].value.id if len(kwarg_dict) > 0 else None
-        if kwarg_dict is not None:
-            kwarg_dict_name = make_unique_name(kwarg_dict)
-            renamer = Rename(kwarg_dict, kwarg_dict_name)
-            for stmt in f_ast.body:
-                renamer.visit(stmt)
+        if len(call_expr.args) > 0 and \
+           isinstance(call_expr.args[-1], ast.Starred):
+            star_arg = call_expr.args.pop().value
+            num_star_args = len(eval(a2s(star_arg), globls, globls))
+            call_star_args = [
+                ast.Subscript(value=star_arg, slice=ast.Index(value=ast.Num(i)))
+                for i in range(num_star_args)
+            ]
+        else:
+            star_arg = None
 
-        if kwarg_dict is not None:
-            new_stmts.append(
-                ast.Assign(targets=[ast.Name(id=kwarg_dict_name)],
-                           value=ast.Name(id=kwarg_dict)))
+        # if call_expr has f(**kwargs)
+        star_kwarg = [arg for arg in call_expr.keywords if arg.arg is None]
+        star_kwarg = star_kwarg[0].value if len(star_kwarg) > 0 else None
+
+        if star_kwarg is not None:
+            star_kwarg_keys = eval(a2s(star_kwarg), globls, globls).keys()
+            call_star_kwarg = {
+                key: ast.Subscript(value=star_kwarg,
+                                   slice=ast.Index(value=ast.Str(key)))
+                for key in star_kwarg_keys
+            }
+
+        call_anon_args = call_expr.args[:]
+        call_kwargs = {
+            arg.arg: arg.value
+            for arg in call_expr.keywords if arg.arg is not None
+        }
+
+        nodefault = len(args_def.args) - len(args_def.defaults)
+        anon_defaults = {
+            arg.arg: default
+            for arg, default in zip(args_def.args[nodefault:],
+                                    args_def.defaults)
+        }
 
         # Add argument bindings
-        for i, (arg, default) in enumerate(
-                zip(args_def.args,
-                    [None for _ in range(nodefault)] + args_def.defaults)):
-            # arg is
+        for arg in args_def.args:
             k = arg.arg
 
             # Get value corresponding to argument name
-            if i < len(call_expr.args):
-                v = call_expr.args[i]
-            elif k in kwargs:
-                v = kwargs.pop(k)
+            if len(call_anon_args) > 0:
+                v = call_anon_args.pop(0)
+            elif star_arg is not None and len(call_star_args) > 0:
+                v = call_star_args.pop(0)
+            elif k in call_kwargs:
+                v = call_kwargs.pop(k)
+            elif star_kwarg is not None and k in call_star_kwarg:
+                v = call_star_kwarg.pop(k)
             else:
-                v = default
+                v = anon_defaults.pop(k)
 
             # Rename to unique var name
             uniq_k = make_unique_name(k)
@@ -399,26 +425,22 @@ class Inliner:
             for stmt in f_ast.body:
                 renamer.visit(stmt)
 
-            if v is default and kwarg_dict is not None:
-                stmt = parse_stmt(
-                    textwrap.dedent(f"""
-                if "{k}" in {kwarg_dict_name}:
-                    {uniq_k} = {kwarg_dict_name}["{k}"]
-                else:
-                    {uniq_k} = None"""))
-                stmt.orelse[0].value = default
-            else:
-                stmt = ast.Assign(targets=[ast.Name(id=uniq_k)], value=v)
-
+            stmt = ast.Assign(targets=[ast.Name(id=uniq_k)], value=v)
             new_stmts.append(stmt)
 
+        for arg in args_def.kwonlyargs:
+            raise Exception("Not yet implemented")
+
         if args_def.vararg is not None:
+            k = args_def.vararg.arg
+            v = call_anon_args[:]
+            if star_arg is not None:
+                v += call_star_args
             new_stmts.append(
-                ast.Assign(targets=[ast.Name(id=args_def.vararg.arg)],
-                           value=ast.List(args[len(args_def.args):])))
+                ast.Assign(targets=[ast.Name(id=k)], value=ast.List(v)))
 
         if args_def.kwarg is not None:
-            kwkeys, kwvalues = unzip(kwargs.items())
+            kwkeys, kwvalues = unzip(call_kwargs.items())
             new_stmts.append(
                 ast.Assign(targets=[ast.Name(id=args_def.kwarg.arg)],
                            value=ast.Dict([ast.Str(s) for s in kwkeys],
@@ -495,9 +517,19 @@ class Inliner:
 
         return [init, forloop]
 
+    def expand_ifexp(self, ifexp, ret_var):
+        def assgn(value):
+            return ast.Assign(targets=[ast.Name(id=ret_var)], value=value)
+
+        return [
+            ast.If(test=ifexp.test,
+                   body=[assgn(ifexp.body)],
+                   orelse=[assgn(ifexp.orelse)])
+        ]
+
     def make_program(self, comments=False):
         return '\n'.join(
-            [a2s(stmt, comments=comments).strip() for stmt in self.stmts])
+            [a2s(stmt, comments=comments).rstrip() for stmt in self.stmts])
 
     def stmt_recurse(self, stmts, f, blocks_also=False):
         def aux(stmts):
@@ -541,6 +573,22 @@ class Inliner:
             nonlocal change
             new_stmts = []
 
+            if isinstance(stmt, ast.For):
+                new_stmts = check_inline(stmt.iter)
+                stmt.iter = new_stmts.pop()
+                return new_stmts + [stmt]
+            elif isinstance(stmt, (ast.If, ast.FunctionDef, ast.With)):
+                return [stmt]
+
+            ifexp_ret_var = self.fresh()
+            ifexp_finder = FindIfExp(ifexp_ret_var)
+            ifexp_finder.visit(stmt)
+            if ifexp_finder.ifexp is not None:
+                change = True
+                return self.expand_ifexp(ifexp_finder.ifexp,
+                                         ifexp_ret_var) + [stmt]
+            self.counter -= 1
+
             comp_ret_var = self.fresh()
             comp_call_finder = FindCall(self.fresh(), globls, globls,
                                         self.should_inline_obj)
@@ -548,11 +596,8 @@ class Inliner:
             comp_finder.visit(stmt)
             if comp_finder.comp is not None:
                 change = True
-                new_stmts.extend(
-                    self.expand_comprehension(comp_finder.comp, comp_ret_var,
-                                              comp_call_finder))
-                new_stmts.append(stmt)
-                return new_stmts
+                return self.expand_comprehension(comp_finder.comp, comp_ret_var,
+                                                 comp_call_finder) + [stmt]
             self.counter -= 2
 
             ret_var = self.fresh()
@@ -571,6 +616,10 @@ class Inliner:
                     new_stmts.append(
                         ast.Assign(targets=[ast.Name(id=ret_var)],
                                    value=call_expr))
+                elif inspect.isgeneratorfunction(call_obj):
+                    new_stmts.extend(
+                        self.inline_generator_function(call_obj, call_expr,
+                                                       ret_var, globls))
                 elif inspect.isfunction(call_obj):
                     new_stmts.extend(
                         self.inline_function(call_obj,
@@ -592,7 +641,9 @@ class Inliner:
             new_stmts.append(stmt)
             return new_stmts
 
-        self.stmts = self.stmt_recurse(self.stmts, check_inline)
+        self.stmts = self.stmt_recurse(self.stmts,
+                                       check_inline,
+                                       blocks_also=True)
         return change
 
     def expand_self(self):
@@ -635,11 +686,16 @@ class Inliner:
     def clean_imports(self):
         imports = []
         new_stmts = []
-        for i, stmt in enumerate(self.stmts):
+
+        def collect_imports(stmt):
+            nonlocal imports
             if isinstance(stmt, ast.Import) or isinstance(stmt, ast.ImportFrom):
                 imports.append(stmt)
+                return []
             else:
-                new_stmts.append(stmt)
+                return [stmt]
+
+        new_stmts = self.stmt_recurse(self.stmts, collect_imports)
 
         imports_dedup = [
             imprt for i, imprt in enumerate(imports) if
@@ -688,6 +744,9 @@ class Inliner:
         prog = self.make_program()
         tracer = Tracer(prog, opcode=True)
         tracer.trace()
+
+        # TODO: make copy propagation work for nested blocks
+        # idea: if tracer.counts == # of block-level executions
 
         self.stmts = ast.parse(prog).body
 
@@ -827,11 +886,18 @@ class Inliner:
 
         change = False
 
+        def is_comment(stmt):
+            return isinstance(stmt, ast.Expr) and \
+                isinstance(stmt.value, ast.Str) and \
+                '__comment' in stmt.value.s
+
+        def len_no_comment(stmts):
+            return len([s for s in stmts if not is_comment(s)])
+
         def check_deadcode(stmt):
             nonlocal change
 
-            if isinstance(stmt, ast.Expr) and isinstance(stmt.value, ast.Str) and \
-               '__comment' in stmt.value.s:
+            if is_comment(stmt):
                 return [stmt]
 
             if is_dead(stmt):
@@ -841,16 +907,17 @@ class Inliner:
             new_stmts = []
             if isinstance(stmt, ast.If):
                 # TODO: assumes pure conditions
-                if len(stmt.body) == 0 or is_dead(stmt.body[0]):
+                if len_no_comment(stmt.body) == 0 or is_dead(stmt.body[0]):
                     change = True
                     new_stmts.extend(stmt.orelse)
-                elif len(stmt.orelse) == 0 or is_dead(stmt.orelse[0]):
+                elif len_no_comment(stmt.orelse) == 0 or is_dead(
+                        stmt.orelse[0]):
                     change = True
                     new_stmts.extend(stmt.body)
                 else:
                     new_stmts.append(stmt)
             elif isinstance(stmt, ast.For):
-                if len(stmt.body) == 0:
+                if len_no_comment(stmt.body) == 0:
                     change = True
                 else:
                     new_stmts.append(stmt)
@@ -864,14 +931,14 @@ class Inliner:
                 if not is_dead(stmt.handlers[0]):
                     # HUGE HACK: assumes it's safe to replace try/except
                     # with just except block if except block not dead
-                    assert len(stmt.handlers) == 1
+                    assert len_no_comment(stmt.handlers) == 1
                     assert stmt.handlers[0].name is None
                     change = True
                     new_stmts.extend(stmt.handlers[0].body)
                 else:
                     new_stmts.extend(stmt.body)
             elif isinstance(stmt, ast.FunctionDef):
-                if len(stmt.body) == 0:
+                if len_no_comment(stmt.body) == 0:
                     change = True
                 else:
                     new_stmts.append(stmt)
