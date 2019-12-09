@@ -1,4 +1,4 @@
-# Inliner: Programmable, human-readable inlining of Python code
+# Inliner
 
 ## Setup
 
