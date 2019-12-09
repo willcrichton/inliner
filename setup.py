@@ -11,5 +11,6 @@ if __name__ == "__main__":
           packages=['inliner'],
           install_requires=['astor', 'iterextras', 'numpy', 'pandas'],
           setup_requires=['pytest-runner'],
+          python_requires=['~=3.7'],
           tests_require=['pytest'],
           zip_safe=False)

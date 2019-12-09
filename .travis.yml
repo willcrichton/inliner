@@ -1,5 +1,5 @@
 language: python
-python: 3.6
+python: 3.7
 before_install:
   - git clone https://github.com/berkerpeksag/astor/
   - pushd astor && pip3 install . && popd

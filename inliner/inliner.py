@@ -211,7 +211,7 @@ class Inliner:
             if star_arg is not None:
                 v += call_star_args
             new_stmts.append(
-                ast.Assign(targets=[ast.Name(id=k)], value=ast.List(v)))
+                ast.Assign(targets=[ast.Name(id=k)], value=ast.List(elts=v)))
 
         if args_def.kwarg is not None:
             kwkeys, kwvalues = unzip(call_kwargs.items())
