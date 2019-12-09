@@ -2,7 +2,7 @@ language: python
 python: 3.6
 before_install:
   - git clone https://github.com/berkerpeksag/astor/
-  - cd astor && pip3 install .
+  - pushd astor && pip3 install . && popd
 install: pip3 install .
 script: python3 setup.py test
 deploy:
