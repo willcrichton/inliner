@@ -14,7 +14,8 @@ from .tracer import FrameAnalyzer, Tracer, compile_and_exec
 
 class Inliner:
     def __init__(self, func, modules):
-        self.stmts = ast.parse(inspect.getsource(func)).body[0].body
+        self.stmts = ast.parse(textwrap.dedent(
+            inspect.getsource(func))).body[0].body
         self.modules = [m.split('.') for m in modules]
         self.counter = 0
 
