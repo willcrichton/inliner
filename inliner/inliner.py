@@ -1,256 +1,15 @@
 import ast
-import astor
 import inspect
 from collections import defaultdict
 from iterextras import unzip
 import textwrap
-import sys
 from astpretty import pprint as pprintast
-from pprint import pprint
-import dis
-from utils import *
-import copy
-import typing
 import os
+import typing
 
-
-class ExpandObjs(ast.NodeTransformer):
-    def __init__(self, globls, objs_to_inline):
-        self.globls = globls
-        self.objs_to_inline = objs_to_inline
-
-    def visit_Attribute(self, attr):
-        if isinstance(attr.value, ast.Name):
-            name = attr.value.id
-            if name in self.globls:
-                obj = self.globls[name]
-                if id(obj) in self.objs_to_inline:
-                    new_name = self.objs_to_inline[id(obj)]
-                    return ast.Name(id=f'{new_name}{SEP}{attr.attr}')
-        return attr
-
-
-class Rename(ast.NodeTransformer):
-    def __init__(self, src, dst):
-        self.src = src
-        self.dst = dst
-
-    def visit_FunctionDef(self, fdef):
-        if fdef.name == self.src:
-            fdef.name = self.dst
-            self.generic_visit(fdef)
-        else:
-            args = fdef.args
-            arg_names = set()
-
-            for arg in args.args:
-                arg_names.add(arg.arg)
-            if args.vararg is not None:
-                arg_names.add(args.vararg.arg)
-            if args.kwarg is not None:
-                arg_names.add(args.kwarg.arg)
-
-            if self.src not in arg_names:
-                self.generic_visit(fdef)
-        return fdef
-
-    def visit_Name(self, name):
-        if name.id == self.src:
-            name.id = self.dst
-        return name
-
-
-class Replace(ast.NodeTransformer):
-    def __init__(self, name, value):
-        self.name = name
-        self.value = value
-        self.replaced = False
-
-    def visit_Name(self, name):
-        if name.id == self.name:
-            self.replaced = True
-            return self.value
-        else:
-            return name
-
-
-class FindAssignments(ast.NodeVisitor):
-    def __init__(self):
-        self.names = set()
-
-    def visit_Assign(self, assgn):
-        for t in assgn.targets:
-            if isinstance(t, ast.Name):
-                self.names.add(t.id)
-
-
-class FindCall(ast.NodeTransformer):
-    def __init__(self, name, globls, locls, should_inline_obj):
-        self.call_obj = None
-        self.call_expr = None
-        self.name = name
-        self.globls = globls
-        self.locls = locls
-        self.should_inline_obj = should_inline_obj
-
-    def visit_Call(self, call_expr):
-        try:
-            call_obj = eval(a2s(call_expr.func), self.globls, self.locls)
-        except Exception:
-            print('ERROR', a2s(call_expr))
-            raise
-
-        if self.should_inline_obj(call_obj):
-            if self.call_expr is not None:
-                raise Exception("Multiple valid call expr")
-
-            self.call_expr = call_expr
-            self.call_obj = call_obj
-            return ast.Name(id=self.name)
-        else:
-            self.generic_visit(call_expr)
-
-        return call_expr
-
-
-class ReplaceReturn(ast.NodeTransformer):
-    def __init__(self, name):
-        self.name = name
-        self.toplevel = True
-        self.found_return = False
-        self.if_wrapper = parse_stmt(
-            textwrap.dedent("""
-        if "{name}" not in locals() and "{name}" not in globals():
-            pass
-            """.format(name=self.name)))
-
-    def visit_Return(self, stmt):
-        if_stmt = copy.deepcopy(self.if_wrapper)
-        if_stmt.body[0] = ast.Assign(targets=[ast.Name(id=self.name)],
-                                     value=stmt.value)
-        self.found_return = True
-        return if_stmt
-
-    def visit_FunctionDef(self, fdef):
-        # no recurse to avoid messing up inline functions
-        if self.toplevel:
-            self.toplevel = False
-            self.generic_visit(fdef)
-        return fdef
-
-    def generic_visit(self, node):
-        for field, old_value in ast.iter_fields(node):
-            if isinstance(old_value, list):
-                new_values = []
-                for i, cur_value in enumerate(old_value):
-                    if isinstance(cur_value, ast.AST):
-                        value = self.visit(cur_value)
-
-                        if self.found_return:
-                            new_values.append(value)
-                            if i < len(old_value) - 1:
-                                if_stmt = copy.deepcopy(self.if_wrapper)
-                                if_stmt.body = old_value[i + 1:]
-                                new_values.append(if_stmt)
-                            break
-
-                        if value is None:
-                            continue
-                        elif not isinstance(value, ast.AST):
-                            new_values.extend(value)
-                            continue
-
-                    new_values.append(value)
-                old_value[:] = new_values
-            elif isinstance(old_value, ast.AST):
-                new_node = self.visit(old_value)
-                if new_node is None:
-                    delattr(node, field)
-                else:
-                    setattr(node, field, new_node)
-
-        return node
-
-
-class ReplaceSelf(ast.NodeTransformer):
-    def __init__(self, cls, globls):
-        self.cls = cls
-        self.globls = globls
-
-    def visit_Call(self, expr):
-        if isinstance(expr.func, ast.Attribute) and \
-            isinstance(expr.func.value, ast.Name) and \
-            expr.func.value.id == 'self':
-
-            expr.func.value = ast.Name(id=self.cls.__name__)
-
-            # If the method being called is bound when directly accessing
-            # it on the class, it's probably a @classmethod, and we shouldn't
-            # add `self` as an argument
-            if not inspect.ismethod(getattr(self.cls, expr.func.attr)):
-                expr.args.insert(0, ast.Name(id='self'))
-
-        return expr
-
-
-class ReplaceSuper(ast.NodeTransformer):
-    def __init__(self, cls):
-        self.cls = cls
-
-    def visit_Call(self, call):
-        if isinstance(call.func, ast.Attribute) and \
-           isinstance(call.func.value, ast.Call) and \
-           isinstance(call.func.value.func, ast.Name) and \
-           call.func.value.func.id == 'super':
-            call.func.value = ast.Name(id=self.cls.__name__)
-            call.args.insert(0, ast.Name(id='self'))
-        self.generic_visit(call)
-        return call
-
-
-class UsedGlobals(ast.NodeVisitor):
-    def __init__(self, globls):
-        self.globls = globls
-        self.used = {}
-
-    def visit_Name(self, name):
-        if name.id in self.globls:
-            self.used[name.id] = self.globls[name.id]
-
-
-class FindComprehension(ast.NodeTransformer):
-    def __init__(self, find_call, ret_var):
-        self.find_call = find_call
-        self.ret_var = ret_var
-        self.comp = None
-
-    def visit_ListComp(self, comp):
-        self.find_call.visit(comp)
-        if self.find_call.call_expr is not None:
-            self.comp = comp
-            return ast.Name(id=self.ret_var)
-        else:
-            return comp
-
-
-class FindIfExp(ast.NodeTransformer):
-    def __init__(self, ret_var):
-        self.ret_var = ret_var
-        self.ifexp = None
-
-    def visit_IfExp(self, ifexp):
-        self.ifexp = ifexp
-        return ast.Name(id=self.ret_var)
-
-
-class CollectLineNumbers(ast.NodeVisitor):
-    def __init__(self):
-        self.linenos = set()
-
-    def generic_visit(self, node):
-        if hasattr(node, 'lineno'):
-            self.linenos.add(node.lineno)
-        super().generic_visit(node)
+from .common import *
+from .visitors import *
+from .tracer import FrameAnalyzer, Tracer, compile_and_exec
 
 
 class Inliner:
@@ -313,7 +72,18 @@ class Inliner:
         return self.generate_imports(cls.__name__, cls)
 
     def inline_generator_function(self, call_obj, call_expr, ret_var, globls):
-        raise Exception("TODO")
+        f_ast = parse_stmt(textwrap.dedent(inspect.getsource(call_obj)))
+
+        new_stmts = [parse_stmt(f'{ret_var} = []')]
+        ReplaceYield(ret_var).visit(f_ast)
+
+        new_stmts.extend(
+            self.inline_function(call_obj,
+                                 call_expr,
+                                 ret_var,
+                                 globls,
+                                 f_ast=f_ast))
+        return new_stmts
 
     def inline_function(self,
                         call_obj,
@@ -321,23 +91,27 @@ class Inliner:
                         ret_var,
                         globls,
                         cls=None,
+                        f_ast=None,
                         debug=False):
         new_stmts = [ast.Expr(ast.Str("__comment: " + a2s(call_expr).strip()))]
         is_special_method = hasattr(call_obj, '__objclass__')
-        if is_special_method:
-            # TODO: make this work for all slot wrappers
-            f_source = """
-            def _(*args):
-                return list(*args)
-            """
-        else:
-            f_source = inspect.getsource(call_obj)
-        f_source = textwrap.dedent(f_source)
 
-        if debug:
-            print('Expanding {}'.format(a2s(call_expr)))
+        if f_ast is None:
+            if is_special_method:
+                # TODO: make this work for all slot wrappers
+                f_source = """
+                def _(*args):
+                    return list(*args)
+                """
+            else:
+                f_source = inspect.getsource(call_obj)
+            f_source = textwrap.dedent(f_source)
 
-        f_ast = parse_stmt(f_source)
+            if debug:
+                print('Expanding {}'.format(a2s(call_expr)))
+
+            f_ast = parse_stmt(f_source)
+
         args_def = f_ast.args
 
         if len(args_def.args) > 0 and args_def.args[0].arg == 'self' and \
@@ -574,9 +348,10 @@ class Inliner:
             new_stmts = []
 
             if isinstance(stmt, ast.For):
-                new_stmts = check_inline(stmt.iter)
-                stmt.iter = new_stmts.pop()
-                return new_stmts + [stmt]
+                expr = ast.Expr(stmt.iter)
+                new_stmts = check_inline(expr)
+                stmt.iter = expr.value
+                return new_stmts[:-1] + [stmt]
             elif isinstance(stmt, (ast.If, ast.FunctionDef, ast.With)):
                 return [stmt]
 
@@ -766,12 +541,12 @@ class Inliner:
                     else:
                         val_eq = False
                 except Exception as e:
-                    if debug:
-                        print('Could not compare for equality:')
-                        print('Inital', tracer.initial_values[k])
-                        print('Final', tracer.globls[k])
-                        print(e)
-                        print('=' * 30)
+                    print('WARNING: could not compare for equality:')
+                    print('Inital', tracer.initial_values[k])
+                    print('Final', tracer.globls[k])
+                    print(e)
+                    print('=' * 30)
+
                     val_eq = False
 
                 if tracer.set_count[k] == 1 and val_eq and \
