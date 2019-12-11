@@ -23,9 +23,9 @@ class Inliner:
         self.generated_vars[prefix] += 1
         count = self.generated_vars[prefix]
         if count == 1:
-            return f'_{prefix}'
+            return f'{prefix}'
         else:
-            return f'_{prefix}_{count}'
+            return f'{prefix}_{count}'
 
     def return_var(self, var):
         self.generated_vars[var.split('_')[0]] -= 1
@@ -133,8 +133,12 @@ class Inliner:
         if cls is not None:
             ReplaceSelf(cls, globls).visit(f_ast)
 
-        def make_unique_name(name):
-            return f'{name}{SEP}{f_ast.name}'
+        def unique_and_rename(name):
+            unique_name = f'{name}{SEP}{f_ast.name}'
+            renamer = Rename(name, unique_name)
+            for stmt in f_ast.body:
+                renamer.visit(stmt)
+            return unique_name
 
         args = call_expr.args[:]
 
@@ -143,10 +147,7 @@ class Inliner:
         arg_names = set([arg.arg for arg in args_def.args])
         for name in assgn_finder.names:
             if name not in arg_names:
-                unique_name = make_unique_name(name)
-                renamer = Rename(name, unique_name)
-                for stmt in f_ast.body:
-                    renamer.visit(stmt)
+                unique_and_rename(name)
 
         if len(call_expr.args) > 0 and \
            isinstance(call_expr.args[-1], ast.Starred):
@@ -201,10 +202,7 @@ class Inliner:
                 v = anon_defaults.pop(k)
 
             # Rename to unique var name
-            uniq_k = make_unique_name(k)
-            renamer = Rename(k, uniq_k)
-            for stmt in f_ast.body:
-                renamer.visit(stmt)
+            uniq_k = unique_and_rename(k)
 
             stmt = ast.Assign(targets=[ast.Name(id=uniq_k)], value=v)
             new_stmts.append(stmt)
@@ -213,7 +211,7 @@ class Inliner:
             raise Exception("Not yet implemented")
 
         if args_def.vararg is not None:
-            k = args_def.vararg.arg
+            k = unique_and_rename(args_def.vararg.arg)
             v = call_anon_args[:]
             if star_arg is not None:
                 v += call_star_args
@@ -221,9 +219,10 @@ class Inliner:
                 ast.Assign(targets=[ast.Name(id=k)], value=ast.List(elts=v)))
 
         if args_def.kwarg is not None:
+            k = unique_and_rename(args_def.kwarg.arg)
             kwkeys, kwvalues = unzip(call_kwargs.items())
             new_stmts.append(
-                ast.Assign(targets=[ast.Name(id=args_def.kwarg.arg)],
+                ast.Assign(targets=[ast.Name(id=k)],
                            value=ast.Dict([ast.Str(s) for s in kwkeys],
                                           kwvalues)))
 
@@ -530,7 +529,7 @@ class Inliner:
 
         self.stmts = ast.parse(prog).body
 
-        collector = CollectCopyableAssignments(tracer)
+        collector = CollectCopyableAssignments(tracer, self.generated_vars)
         self.stmts = [collector.visit(stmt) for stmt in self.stmts]
         self.stmts = [stmt for stmt in self.stmts if stmt is not None]
 
@@ -573,10 +572,6 @@ class Inliner:
             if isinstance(stmt, ast.Assign) and \
                len(stmt.targets) == 1 and \
                isinstance(stmt.targets[0], ast.Name):
-
-                # special case for assignments like "x = x"
-                if compare_ast(stmt.targets[0], stmt.value):
-                    return []
 
                 name = stmt.targets[0].id
                 unused_lines = unused_stores[name]
@@ -708,6 +703,16 @@ class Inliner:
         remover = RemoveSuffix()
         for stmt in self.stmts:
             remover.visit(stmt)
+
+    def simplify_kwargs(self):
+        prog = self.make_program()
+        tracer = Tracer(prog, opcode=True)
+        tracer.trace()
+        self.stmts = ast.parse(prog).body
+
+        simplifier = SimplifyKwargs(tracer.globls)
+        for stmt in self.stmts:
+            simplifier.visit(stmt)
 
     def fixpoint(self, f):
         while f():

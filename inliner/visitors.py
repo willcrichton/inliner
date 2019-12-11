@@ -309,8 +309,8 @@ class ShouldCopyPropagate(ast.NodeVisitor):
         self.size = 0
         self.has_call = False
 
-    def should_propagate(self, name):
-        return name[:4] == '_var' or \
+    def should_propagate(self, name, generated_vars):
+        return (name.split('_')[0] in generated_vars) or \
             (self.size <= MAX_TREESIZE and not self.has_call)
 
     def generic_visit(self, node):
@@ -323,8 +323,9 @@ class ShouldCopyPropagate(ast.NodeVisitor):
 
 
 class CollectCopyableAssignments(ast.NodeTransformer):
-    def __init__(self, tracer):
+    def __init__(self, tracer, generated_vars):
         self.assignments = []
+        self.generated_vars = generated_vars
         self.tracer = tracer
         self.baseline_execs = 1
 
@@ -355,15 +356,37 @@ class CollectCopyableAssignments(ast.NodeTransformer):
                 val_eq = False
 
             can_propagate = val_eq or \
-                len(self.tracer.reads[k]) == self.baseline_execs
+                len(self.tracer.reads[k]) == self.baseline_execs or \
+                isinstance(stmt.value, ast.Name)
 
             should_prop = ShouldCopyPropagate()
             should_prop.visit(stmt.value)
 
             if self.tracer.set_count[k] == self.baseline_execs and \
                can_propagate and \
-               should_prop.should_propagate(k):
+               should_prop.should_propagate(k, self.generated_vars):
                 self.assignments.append((k, stmt.value))
                 return None
 
         return stmt
+
+
+class SimplifyKwargs(ast.NodeTransformer):
+    def __init__(self, globls):
+        self.globls = globls
+
+    def visit_Call(self, call):
+        kwarg = [(i, kw.value) for i, kw in enumerate(call.keywords)
+                 if kw.arg is None]
+        if len(kwarg) == 1:
+            i, kwarg = kwarg[0]
+
+            try:
+                kwarg_obj = eval(a2s(kwarg), self.globls, self.globls)
+            except Exception:
+                print('ERROR', a2s(call))
+                raise
+
+            if len(kwarg_obj) == 0:
+                del call.keywords[i]
+        return call
