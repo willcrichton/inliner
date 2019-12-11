@@ -5,6 +5,7 @@ from iterextras import unzip
 import textwrap
 import os
 import typing
+from pprint import pprint
 
 from .common import *
 from .visitors import *
@@ -16,12 +17,18 @@ class Inliner:
         self.stmts = ast.parse(textwrap.dedent(
             inspect.getsource(func))).body[0].body
         self.modules = [m.split('.') for m in modules]
-        self.counter = 0
+        self.generated_vars = defaultdict(int)
 
-    def fresh(self):
-        v = 'var{}'.format(self.counter)
-        self.counter += 1
-        return v
+    def fresh(self, prefix='var'):
+        self.generated_vars[prefix] += 1
+        count = self.generated_vars[prefix]
+        if count == 1:
+            return f'_{prefix}'
+        else:
+            return f'_{prefix}_{count}'
+
+    def return_var(self, var):
+        self.generated_vars[var.split('_')[0]] -= 1
 
     def is_source_obj(self, obj):
         try:
@@ -355,17 +362,15 @@ class Inliner:
             elif isinstance(stmt, (ast.If, ast.FunctionDef, ast.With)):
                 return [stmt]
 
-            ifexp_ret_var = self.fresh()
-            ifexp_finder = FindIfExp(ifexp_ret_var)
+            ifexp_finder = FindIfExp(self.fresh)
             ifexp_finder.visit(stmt)
             if ifexp_finder.ifexp is not None:
                 change = True
                 return self.expand_ifexp(ifexp_finder.ifexp,
-                                         ifexp_ret_var) + [stmt]
-            self.counter -= 1
+                                         ifexp_finder.ret_var) + [stmt]
 
-            comp_ret_var = self.fresh()
-            comp_call_finder = FindCall(self.fresh(), globls, globls,
+            comp_ret_var = self.fresh('comp')
+            comp_call_finder = FindCall(self.fresh, globls, globls,
                                         self.should_inline_obj)
             comp_finder = FindComprehension(comp_call_finder, comp_ret_var)
             comp_finder.visit(stmt)
@@ -373,14 +378,13 @@ class Inliner:
                 change = True
                 return self.expand_comprehension(comp_finder.comp, comp_ret_var,
                                                  comp_call_finder) + [stmt]
-            self.counter -= 2
 
-            ret_var = self.fresh()
-            call_finder = FindCall(ret_var, globls, globls,
+            call_finder = FindCall(self.fresh, globls, globls,
                                    self.should_inline_obj)
             call_finder.visit(stmt)
 
             if call_finder.call_expr is not None:
+                ret_var = call_finder.ret_var
                 call_expr = call_finder.call_expr
                 call_obj = call_finder.call_obj
 
@@ -410,8 +414,6 @@ class Inliner:
                     raise NotYetImplemented
 
                 change = True
-            else:
-                self.counter -= 1
 
             new_stmts.append(stmt)
             return new_stmts
@@ -430,7 +432,13 @@ class Inliner:
             if self.should_inline_obj(obj) and not inspect.isclass(obj) and \
                not inspect.ismodule(obj):
                 if id(obj) not in objs_to_inline:
-                    objs_to_inline[id(obj)] = self.fresh()
+                    if hasattr(obj, '__name__'):
+                        name = obj.__name__
+                    elif hasattr(obj, '__class__'):
+                        name = obj.__class__.__name__
+                    else:
+                        name = 'var'
+                    objs_to_inline[id(obj)] = self.fresh(name.lower())
 
         def self_assign(stmt):
             if isinstance(stmt, ast.Assign) and \
@@ -520,53 +528,21 @@ class Inliner:
         tracer = Tracer(prog, opcode=True)
         tracer.trace()
 
-        # TODO: make copy propagation work for nested blocks
-        # idea: if tracer.counts == # of block-level executions
-
         self.stmts = ast.parse(prog).body
 
-        toplevel_assignments = {}
-        for stmt in self.stmts:
-            if isinstance(stmt, ast.Assign) and \
-               len(stmt.targets) == 1 and \
-               isinstance(stmt.targets[0], ast.Name):
-                k = stmt.targets[0].id
-                assert k not in toplevel_assignments
-                try:
-                    # For some reason, exceptions don't occur until usage of
-                    # truth is put into an if statement
-                    if robust_eq(tracer.stores[k][0][0],
-                                 tracer.stores[k][-1][0]):
-                        val_eq = True
-                    else:
-                        val_eq = False
-                except Exception as e:
-                    print('WARNING: could not compare for equality:')
-                    print('Inital', tracer.initial_values[k])
-                    print('Final', tracer.globls[k])
-                    print(e)
-                    print('=' * 30)
+        collector = CollectCopyableAssignments(tracer)
+        self.stmts = [collector.visit(stmt) for stmt in self.stmts]
+        self.stmts = [stmt for stmt in self.stmts if stmt is not None]
 
-                    val_eq = False
+        for i, (name, value) in enumerate(collector.assignments):
+            replacer = Replace(name, value)
+            for stmt in self.stmts:
+                replacer.visit(stmt)
+            for j, (name2, value2) in enumerate(collector.assignments[i + 1:]):
+                collector.assignments[i + 1 + j] = (name2,
+                                                    replacer.visit(value2))
 
-                if tracer.set_count[k] == 1 and val_eq and \
-                   isinstance(stmt.value, \
-                              (ast.Num, ast.Str, ast.NameConstant, ast.Name, ast.Attribute, ast.Tuple)):
-                    toplevel_assignments[k] = stmt
-
-        new_stmts = []
-        for i, stmt in enumerate(self.stmts):
-            if isinstance(stmt, ast.Assign) and \
-               isinstance(stmt.targets[0], ast.Name) and \
-               stmt.targets[0].id in toplevel_assignments:
-                name = stmt.targets[0].id
-                for stmt2 in self.stmts[i + 1:]:
-                    replacer = Replace(name, toplevel_assignments[name].value)
-                    replacer.visit(stmt2)
-            else:
-                new_stmts.append(stmt)
-
-        self.stmts = new_stmts
+        return len(collector.assignments) > 0
 
     def lifetimes(self):
         prog = self.make_program()

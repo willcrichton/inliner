@@ -35,7 +35,7 @@ class SourceGeneratorWithComments(SourceGenerator):
             s = node.s[10:]
             call = parse_expr(textwrap.dedent(s))
             RemoveSuffix().visit(call)
-            s = a2s(call)
+            s = a2s(call, comments=COMMENTS)
             indent = self.indent_with * self.indentation
             comment = '\n'.join([f'{indent}# {part}'
                                  for part in s.split('\n')][:-1])
@@ -112,11 +112,14 @@ def robust_eq(obj1, obj2):
     import pandas as pd
     import numpy as np
 
-    if isinstance(obj1, pd.DataFrame) or isinstance(obj1, pd.Series):
+    if type(obj1) != type(obj2):
+        return False
+    elif isinstance(obj1, pd.DataFrame) or isinstance(obj1, pd.Series):
         return obj1.equals(obj2)
     elif isinstance(obj1, np.ndarray):
         return np.array_equal(obj1, obj2)
     elif isinstance(obj1, tuple) or isinstance(obj1, list):
-        return all(map(lambda t: robust_eq(*t), zip(obj1, obj2)))
+        return len(obj1) == len(obj2) and all(
+            map(lambda t: robust_eq(*t), zip(obj1, obj2)))
     else:
         return obj1 == obj2

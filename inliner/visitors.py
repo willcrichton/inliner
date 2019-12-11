@@ -88,13 +88,43 @@ class FindAssignments(ast.NodeVisitor):
 
 
 class FindCall(ast.NodeTransformer):
-    def __init__(self, name, globls, locls, should_inline_obj):
+    def __init__(self, fresh, globls, locls, should_inline_obj):
         self.call_obj = None
         self.call_expr = None
-        self.name = name
+        self.fresh = fresh
         self.globls = globls
         self.locls = locls
         self.should_inline_obj = should_inline_obj
+        self.ret_var = None
+
+    def visit_Attribute(self, attr):
+        try:
+            prop_obj = eval(a2s(attr.value), self.globls, self.globls)
+        except Exception:
+            #print('ERROR', a2s(attr.value))
+            return attr
+            #raise
+
+        if self.should_inline_obj(prop_obj) and \
+           hasattr(prop_obj, '__class__') and \
+           hasattr(prop_obj.__class__, attr.attr):
+            prop = getattr(prop_obj.__class__, attr.attr)
+            if isinstance(prop, property):
+                self.call_obj = prop.fget
+                self.call_expr = parse_expr("{}_getter({})".format(
+                    attr.attr, a2s(attr.value)))
+                self.ret_var = self.fresh('prop_{}'.format(attr.attr))
+                return ast.Name(id=self.ret_var)
+
+        return attr
+
+    def get_func_name(self, func):
+        if isinstance(func, ast.Name):
+            return func.id
+        elif isinstance(func, ast.Attribute):
+            return func.attr
+        else:
+            return 'func'
 
     def visit_Call(self, call_expr):
         try:
@@ -109,31 +139,14 @@ class FindCall(ast.NodeTransformer):
 
             self.call_expr = call_expr
             self.call_obj = call_obj
-            return ast.Name(id=self.name)
+
+            func_name = self.get_func_name(call_expr.func)
+            self.ret_var = self.fresh(f'{func_name}_ret')
+            return ast.Name(id=self.ret_var)
         else:
             self.generic_visit(call_expr)
 
         return call_expr
-
-
-class FindProperty(ast.NodeTransformer):
-    def __init__(self, ret_var, globls, should_inilne_obj):
-        self.prop_obj = None
-        self.prop_expr = None
-        self.ret_var = ret_var
-        self.globls = globls
-
-    def visit_Attribute(self, attr):
-        try:
-            prop_obj = eval(a2s(attr.value), self.globls, self.globls)
-        except Exception:
-            print('ERROR', a2s(attr.value))
-            raise
-
-        # TODO: inline property
-        if self.should_inline_obj(prop_obj):
-            self.prop_obj = prop_obj
-            self.prop_expr = attr
 
 
 class ReplaceReturn(ast.NodeTransformer):
@@ -267,12 +280,14 @@ class FindComprehension(ast.NodeTransformer):
 
 
 class FindIfExp(ast.NodeTransformer):
-    def __init__(self, ret_var):
-        self.ret_var = ret_var
+    def __init__(self, fresh):
+        self.fresh = fresh
         self.ifexp = None
+        self.ret_var = None
 
     def visit_IfExp(self, ifexp):
         self.ifexp = ifexp
+        self.ret_var = self.fresh('ifexp')
         return ast.Name(id=self.ret_var)
 
 
@@ -284,3 +299,71 @@ class CollectLineNumbers(ast.NodeVisitor):
         if hasattr(node, 'lineno'):
             self.linenos.add(node.lineno)
         super().generic_visit(node)
+
+
+MAX_TREESIZE = 10  # TODO: good value for this?
+
+
+class ShouldCopyPropagate(ast.NodeVisitor):
+    def __init__(self):
+        self.size = 0
+        self.has_call = False
+
+    def should_propagate(self, name):
+        return name[:4] == '_var' or \
+            (self.size <= MAX_TREESIZE and not self.has_call)
+
+    def generic_visit(self, node):
+        self.size += 1
+        super().generic_visit(node)
+
+    def visit_Call(self, node):
+        self.has_call = True
+        self.generic_visit(node)
+
+
+class CollectCopyableAssignments(ast.NodeTransformer):
+    def __init__(self, tracer):
+        self.assignments = []
+        self.tracer = tracer
+        self.baseline_execs = 1
+
+    def visit_For(self, loop):
+        loop_iters = self.tracer.execed_lines[loop.lineno] - 1
+        if loop_iters > 0:
+            self.baseline_execs *= loop_iters
+            self.generic_visit(loop)
+            self.baseline_execs /= loop_iters
+        return loop
+
+    def visit_Assign(self, stmt):
+        if len(stmt.targets) == 1 and \
+           isinstance(stmt.targets[0], ast.Name):
+            k = stmt.targets[0].id
+            try:
+                val_eq = len(self.tracer.reads[k]) == 0 or \
+                   bool(robust_eq(self.tracer.reads[k][0][0],
+                                  self.tracer.reads[k][-1][0]))
+            except Exception as e:
+                print('WARNING: could not compare for equality on key `{}`:'.
+                      format(k))
+                print('Inital', self.tracer.reads[k][0][0])
+                print('Final', self.tracer.reads[k][-1][0])
+                print(e)
+                print('=' * 30)
+
+                val_eq = False
+
+            can_propagate = val_eq or \
+                len(self.tracer.reads[k]) == self.baseline_execs
+
+            should_prop = ShouldCopyPropagate()
+            should_prop.visit(stmt.value)
+
+            if self.tracer.set_count[k] == self.baseline_execs and \
+               can_propagate and \
+               should_prop.should_propagate(k):
+                self.assignments.append((k, stmt.value))
+                return None
+
+        return stmt

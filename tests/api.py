@@ -25,3 +25,12 @@ class ClassBasic:
 
     def bar(self):
         assert self.flag
+
+
+class ClassProperty:
+    def __init__(self):
+        self.foo = 1
+
+    @property
+    def bar(self):
+        return self.foo

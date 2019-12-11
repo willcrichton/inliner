@@ -14,12 +14,16 @@ def basic_schedule(inliner):
 
 
 def harness(fn, schedule):
+    # Execute the function to make sure it works without inlining
+    fn()
+
+    # Then execute with inlining
     try:
         inliner = Inliner(fn, ['api'])
         schedule(inliner)
         globls = {}
         exec(inliner.make_program(comments=True), globls, globls)
-    except AssertionError:
+    except Exception:
         print(inliner.make_program(comments=True))
         raise
 
@@ -48,3 +52,12 @@ def test_class_basic():
         c.foo(0)
 
     harness(class_basic, basic_schedule)
+
+
+def test_class_property():
+    def class_property():
+        from api import ClassProperty
+        c = ClassProperty()
+        assert c.bar == 1
+
+    harness(class_property, basic_schedule)
