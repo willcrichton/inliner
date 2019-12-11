@@ -9,7 +9,9 @@ if __name__ == "__main__":
           author_email='wcrichto@cs.stanford.edu',
           license='Apache 2.0',
           packages=['inliner'],
-          install_requires=['astor', 'iterextras', 'numpy', 'pandas'],
+          install_requires=[
+              'astor', 'iterextras', 'numpy', 'pandas', 'astpretty'
+          ],
           setup_requires=['pytest-runner'],
           tests_require=['pytest'],
           zip_safe=False)
