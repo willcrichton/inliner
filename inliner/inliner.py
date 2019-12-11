@@ -6,6 +6,7 @@ import textwrap
 import os
 import typing
 from pprint import pprint
+from astpretty import pprint as pprintast
 
 from .common import *
 from .visitors import *
@@ -76,7 +77,12 @@ class Inliner:
             call_expr.func = ast.Attribute(value=ast.Name(id=cls.__name__),
                                            attr=call_expr.func.attr)
         call_expr.args.insert(0, obj)
-        return self.generate_imports(cls.__name__, cls)
+
+        file_imports = collect_imports(call_obj)
+        return self.generate_imports(cls.__name__,
+                                     cls,
+                                     call_obj=call_obj,
+                                     file_imports=file_imports)
 
     def inline_generator_function(self, call_obj, call_expr, ret_var, globls):
         f_ast = parse_stmt(textwrap.dedent(inspect.getsource(call_obj)))
@@ -185,6 +191,11 @@ class Inliner:
                                     args_def.defaults)
         }
 
+        kw_defaults = {
+            arg.arg: default
+            for arg, default in zip(args_def.kwonlyargs, args_def.kw_defaults)
+        }
+
         # Add argument bindings
         for arg in args_def.args:
             k = arg.arg
@@ -208,7 +219,19 @@ class Inliner:
             new_stmts.append(stmt)
 
         for arg in args_def.kwonlyargs:
-            raise Exception("Not yet implemented")
+            k = arg.arg
+
+            if k in call_kwargs:
+                v = call_kwargs.pop(k)
+            elif star_kwarg is not None and k in call_star_kwarg:
+                v = call_star_kwarg.pop(k)
+            else:
+                v = kw_defaults.pop(k)
+
+            uniq_k = unique_and_rename(k)
+
+            stmt = ast.Assign(targets=[ast.Name(id=uniq_k)], value=v)
+            new_stmts.append(stmt)
 
         if args_def.vararg is not None:
             k = unique_and_rename(args_def.vararg.arg)
@@ -250,14 +273,23 @@ class Inliner:
                     used[var] = cell.cell_contents
 
             imports = []
+
+            file_imports = collect_imports(call_obj)
+
             for name, globl in used_globals.used.items():
-                imprt = self.generate_imports(name, globl)
+                imprt = self.generate_imports(name,
+                                              globl,
+                                              call_obj=call_obj,
+                                              file_imports=file_imports)
                 if imprt is not None:
                     new_stmts.insert(0, imprt)
 
         return new_stmts
 
-    def generate_imports(self, name, globl):
+    def generate_imports(self, name, globl, call_obj, file_imports):
+        if name in file_imports:
+            return file_imports[name]
+
         if inspect.ismodule(globl):
             alias = name if globl.__name__ != name else None
             return ast.Import([ast.alias(name=globl.__name__, asname=alias)])
@@ -268,10 +300,15 @@ class Inliner:
                 return ast.Assign(targets=[ast.Name(id=name)], value=mod_value)
             elif mod == __builtins__:
                 return None
-            else:
+            elif inspect.isclass(globl) or inspect.isfunction(globl):
                 return ast.ImportFrom(module=mod.__name__,
                                       names=[ast.alias(name=name, asname=None)],
                                       level=0)
+            elif call_obj is not None:
+                return ast.ImportFrom(
+                    module=inspect.getmodule(call_obj).__name__,
+                    names=[ast.alias(name=name, asname=None)],
+                    level=0)
 
     def expand_comprehension(self, comp, ret_var, call_finder, globls):
         forloop = None

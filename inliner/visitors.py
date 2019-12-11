@@ -390,3 +390,40 @@ class SimplifyKwargs(ast.NodeTransformer):
             if len(kwarg_obj) == 0:
                 del call.keywords[i]
         return call
+
+
+class CollectImports(ast.NodeVisitor):
+    def __init__(self, mod):
+        self.imprts = {}
+        self.mod = mod
+
+    def visit_Import(self, imprt):
+        for alias in imprt.names:
+            name = alias.asname if alias.asname is not None else alias.name
+            self.imprts[name] = ast.Import(names=[alias])
+
+    def visit_ImportFrom(self, imprt):
+        for alias in imprt.names:
+            name = alias.asname if alias.asname is not None else alias.name
+
+            if imprt.level > 0:
+                parts = self.mod.split('.')
+                mod_level = '.'.join(
+                    p[:-imprt.level]) if len(parts) > 1 else parts[0]
+                if imprt.module is not None:
+                    module = f'{mod_level}.{imprt.module}'
+                else:
+                    module = mod_level
+            else:
+                module = imprt.module
+
+            self.imprts[name] = ast.ImportFrom(module=module,
+                                               names=[alias],
+                                               level=0)
+
+
+def collect_imports(call_obj):
+    import_collector = CollectImports(mod=inspect.getmodule(call_obj).__name__)
+    import_collector.visit(
+        ast.parse(open(inspect.getsourcefile(call_obj)).read()))
+    return import_collector.imprts

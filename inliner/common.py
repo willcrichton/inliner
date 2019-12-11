@@ -6,6 +6,8 @@ import ast
 import re
 from iterextras import unzip
 import typing
+import math
+from astpretty import pprint as pprintast
 
 SEP = '___'
 COMMENTS = False
@@ -96,6 +98,8 @@ def obj_to_ast(obj):
         return ast.NameConstant(None)
     elif callable(obj):
         return ast.NameConstant(None)
+    elif math.isinf(obj):
+        return parse_expr('float("inf")')
     else:
         raise ObjConversionException(f"No converter for {obj}")
 
