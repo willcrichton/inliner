@@ -7,6 +7,7 @@ import os
 import typing
 from pprint import pprint
 from astpretty import pprint as pprintast
+import itertools
 
 from .common import *
 from .visitors import *
@@ -14,10 +15,10 @@ from .tracer import FrameAnalyzer, Tracer, compile_and_exec
 
 
 class Inliner:
-    def __init__(self, func, modules):
+    def __init__(self, func, to_inline):
         self.stmts = ast.parse(textwrap.dedent(
             inspect.getsource(func))).body[0].body
-        self.modules = [m.split('.') for m in modules]
+        self.to_inline = to_inline
         self.generated_vars = defaultdict(int)
 
     def fresh(self, prefix='var'):
@@ -46,10 +47,20 @@ class Inliner:
 
         if module is not None:
             module_parts = module.__name__.split('.')
-            return any([
-                module_parts[:len(target_mod)] == target_mod
-                for target_mod in self.modules
-            ])
+            for target in self.to_inline:
+                if isinstance(target, str):
+                    target_mod = target.split('.')
+                    if module_parts[:len(target_mod)] == target_mod:
+                        return True
+                elif inspect.isfunction(target):
+                    if inspect.ismethod(obj):
+                        cls = obj.__self__.__class__
+                        if hasattr(cls, target.__name__) and getattr(
+                                cls, target.__name__) == target:
+                            return True
+                    elif inspect.isfunction(obj):
+                        if obj.__name__ == target.__name__:
+                            return True
 
         return False
 
@@ -58,9 +69,9 @@ class Inliner:
         imprt = ast.ImportFrom(module=inspect.getmodule(call_obj).__name__,
                                level=0,
                                names=[ast.alias(name=cls, asname=None)])
-        make_obj = ast.Assign(targets=[ast.Name(id=ret_var)],
+        make_obj = ast.Assign(targets=[make_name(ret_var)],
                               value=parse_expr(f'{cls}.__new__({cls})'))
-        call_expr.args.insert(0, ast.Name(id=ret_var))
+        call_expr.args.insert(0, make_name(ret_var))
         return [imprt, make_obj] + self.inline_function(
             call_obj.__init__, call_expr, ret_var, globls, cls=call_obj)
 
@@ -70,11 +81,11 @@ class Inliner:
         if inspect.isclass(bound_obj):
             cls = bound_obj
             call_expr.func = ast.Attribute(value=ast.Attribute(
-                value=ast.Name(id=cls.__name__), attr=call_expr.func.attr),
+                value=make_name(cls.__name__), attr=call_expr.func.attr),
                                            attr='__func__')
         else:
             cls = bound_obj.__class__
-            call_expr.func = ast.Attribute(value=ast.Name(id=cls.__name__),
+            call_expr.func = ast.Attribute(value=make_name(cls.__name__),
                                            attr=call_expr.func.attr)
         call_expr.args.insert(0, obj)
 
@@ -215,7 +226,7 @@ class Inliner:
             # Rename to unique var name
             uniq_k = unique_and_rename(k)
 
-            stmt = ast.Assign(targets=[ast.Name(id=uniq_k)], value=v)
+            stmt = ast.Assign(targets=[make_name(uniq_k)], value=v)
             new_stmts.append(stmt)
 
         for arg in args_def.kwonlyargs:
@@ -230,7 +241,7 @@ class Inliner:
 
             uniq_k = unique_and_rename(k)
 
-            stmt = ast.Assign(targets=[ast.Name(id=uniq_k)], value=v)
+            stmt = ast.Assign(targets=[make_name(uniq_k)], value=v)
             new_stmts.append(stmt)
 
         if args_def.vararg is not None:
@@ -239,13 +250,16 @@ class Inliner:
             if star_arg is not None:
                 v += call_star_args
             new_stmts.append(
-                ast.Assign(targets=[ast.Name(id=k)], value=ast.List(elts=v)))
+                ast.Assign(targets=[make_name(k)], value=ast.List(elts=v)))
 
         if args_def.kwarg is not None:
             k = unique_and_rename(args_def.kwarg.arg)
-            kwkeys, kwvalues = unzip(call_kwargs.items())
+            items = call_kwargs.items()
+            if star_kwarg is not None:
+                items = itertools.chain(items, call_star_kwarg.items())
+            kwkeys, kwvalues = unzip(items)
             new_stmts.append(
-                ast.Assign(targets=[ast.Name(id=k)],
+                ast.Assign(targets=[make_name(k)],
                            value=ast.Dict([ast.Str(s) for s in kwkeys],
                                           kwvalues)))
 
@@ -256,6 +270,12 @@ class Inliner:
             replacer.visit(f_ast)
             if not replacer.found_return:
                 break
+
+        try:
+            a2s(f_ast)
+        except Exception:
+            print(f_ast.name)
+            raise
 
         # Inline function body
         new_stmts.extend(f_ast.body)
@@ -296,8 +316,16 @@ class Inliner:
         else:
             mod = inspect.getmodule(globl)
             if mod is None or mod is typing:
-                mod_value = obj_to_ast(globl)
-                return ast.Assign(targets=[ast.Name(id=name)], value=mod_value)
+                try:
+                    mod_value = obj_to_ast(globl)
+                    return ast.Assign(targets=[make_name(name)],
+                                      value=mod_value)
+                except ObjConversionException:
+                    return ast.ImportFrom(
+                        module=inspect.getmodule(call_obj).__name__,
+                        names=[ast.alias(name=name, asname=None)],
+                        level=0)
+
             elif mod == __builtins__:
                 return None
             elif inspect.isclass(globl) or inspect.isfunction(globl):
@@ -336,7 +364,7 @@ class Inliner:
 
     def expand_ifexp(self, ifexp, ret_var):
         def assgn(value):
-            return ast.Assign(targets=[ast.Name(id=ret_var)], value=value)
+            return ast.Assign(targets=[make_name(ret_var)], value=value)
 
         return [
             ast.If(test=ifexp.test,
@@ -429,7 +457,7 @@ class Inliner:
                     if imprt is not None:
                         new_stmts.insert(0, imprt)
                     new_stmts.append(
-                        ast.Assign(targets=[ast.Name(id=ret_var)],
+                        ast.Assign(targets=[make_name(ret_var)],
                                    value=call_expr))
                 elif inspect.isgeneratorfunction(call_obj):
                     new_stmts.extend(
@@ -447,6 +475,7 @@ class Inliner:
                         self.inline_constructor(call_obj, call_expr, ret_var,
                                                 globls))
                 else:
+                    print(call_obj, type(call_obj))
                     raise NotYetImplemented
 
                 change = True
@@ -487,7 +516,7 @@ class Inliner:
                     if isinstance(stmt.value, ast.Call):
                         return [
                             ast.Assign(
-                                targets=[ast.Name(id=f'{new_name}{SEP}{k}')],
+                                targets=[make_name(f'{new_name}{SEP}{k}')],
                                 value=ast.NameConstant(None))
                             for k in vars(obj).keys()
                         ]

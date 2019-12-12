@@ -26,7 +26,7 @@ class ExpandObjs(ast.NodeTransformer):
                 obj = self.globls[name]
                 if id(obj) in self.objs_to_inline:
                     new_name = self.objs_to_inline[id(obj)]
-                    return ast.Name(id=f'{new_name}{SEP}{attr.attr}')
+                    return make_name(f'{new_name}{SEP}{attr.attr}')
         else:
             self.generic_visit(attr)
 
@@ -114,7 +114,9 @@ class FindCall(ast.NodeTransformer):
                 self.call_expr = parse_expr("{}_getter({})".format(
                     attr.attr, a2s(attr.value)))
                 self.ret_var = self.fresh('prop_{}'.format(attr.attr))
-                return ast.Name(id=self.ret_var)
+                return make_name(self.ret_var)
+        else:
+            self.generic_visit(attr)
 
         return attr
 
@@ -142,7 +144,7 @@ class FindCall(ast.NodeTransformer):
 
             func_name = self.get_func_name(call_expr.func)
             self.ret_var = self.fresh(f'{func_name}_ret')
-            return ast.Name(id=self.ret_var)
+            return make_name(self.ret_var)
         else:
             self.generic_visit(call_expr)
 
@@ -162,8 +164,10 @@ class ReplaceReturn(ast.NodeTransformer):
 
     def visit_Return(self, stmt):
         if_stmt = copy.deepcopy(self.if_wrapper)
-        if_stmt.body[0] = ast.Assign(targets=[ast.Name(id=self.name)],
-                                     value=stmt.value)
+        # A naked return (without a value) will have stmt.value = None
+        value = stmt.value if stmt.value is not None else ast.NameConstant(None)
+        if_stmt.body[0] = ast.Assign(targets=[make_name(self.name)],
+                                     value=value)
         self.found_return = True
         return if_stmt
 
@@ -182,7 +186,9 @@ class ReplaceReturn(ast.NodeTransformer):
                     if isinstance(cur_value, ast.AST):
                         value = self.visit(cur_value)
 
-                        if self.found_return:
+                        stmt_types = (ast.For, ast.If, ast.With,
+                                      ast.FunctionDef, ast.Assign, ast.While)
+                        if isinstance(node, stmt_types) and self.found_return:
                             new_values.append(value)
                             if i < len(old_value) - 1:
                                 if_stmt = copy.deepcopy(self.if_wrapper)
@@ -228,13 +234,13 @@ class ReplaceSelf(ast.NodeTransformer):
             isinstance(expr.func.value, ast.Name) and \
             expr.func.value.id == 'self':
 
-            expr.func.value = ast.Name(id=self.cls.__name__)
+            expr.func.value = make_name(self.cls.__name__)
 
             # If the method being called is bound when directly accessing
             # it on the class, it's probably a @classmethod, and we shouldn't
             # add `self` as an argument
             if not inspect.ismethod(getattr(self.cls, expr.func.attr)):
-                expr.args.insert(0, ast.Name(id='self'))
+                expr.args.insert(0, make_name('self'))
 
         return expr
 
@@ -248,8 +254,8 @@ class ReplaceSuper(ast.NodeTransformer):
            isinstance(call.func.value, ast.Call) and \
            isinstance(call.func.value.func, ast.Name) and \
            call.func.value.func.id == 'super':
-            call.func.value = ast.Name(id=self.cls.__name__)
-            call.args.insert(0, ast.Name(id='self'))
+            call.func.value = make_name(self.cls.__name__)
+            call.args.insert(0, make_name('self'))
         self.generic_visit(call)
         return call
 
@@ -274,7 +280,7 @@ class FindComprehension(ast.NodeTransformer):
         self.find_call.visit(comp)
         if self.find_call.call_expr is not None:
             self.comp = comp
-            return ast.Name(id=self.ret_var)
+            return make_name(self.ret_var)
         else:
             return comp
 
@@ -288,7 +294,7 @@ class FindIfExp(ast.NodeTransformer):
     def visit_IfExp(self, ifexp):
         self.ifexp = ifexp
         self.ret_var = self.fresh('ifexp')
-        return ast.Name(id=self.ret_var)
+        return make_name(self.ret_var)
 
 
 class CollectLineNumbers(ast.NodeVisitor):
@@ -409,7 +415,7 @@ class CollectImports(ast.NodeVisitor):
             if imprt.level > 0:
                 parts = self.mod.split('.')
                 mod_level = '.'.join(
-                    p[:-imprt.level]) if len(parts) > 1 else parts[0]
+                    parts[:-imprt.level]) if len(parts) > 1 else parts[0]
                 if imprt.module is not None:
                     module = f'{mod_level}.{imprt.module}'
                 else:

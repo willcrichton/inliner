@@ -60,7 +60,7 @@ def compare_ast(node1, node2):
         return False
     if isinstance(node1, ast.AST):
         for k, v in vars(node1).items():
-            if k in ('lineno', 'col_offset', 'ctx'):
+            if k in ('lineno', 'col_offset', 'ctx', '_pp'):
                 continue
             if not compare_ast(v, getattr(node2, k)):
                 return False
@@ -98,8 +98,10 @@ def obj_to_ast(obj):
         return ast.NameConstant(None)
     elif callable(obj):
         return ast.NameConstant(None)
-    elif math.isinf(obj):
+    elif isinstance(obj, float) and math.isinf(obj):
         return parse_expr('float("inf")')
+    elif isinstance(obj, bytes):
+        return ast.Bytes(s=obj)
     else:
         raise ObjConversionException(f"No converter for {obj}")
 
@@ -127,3 +129,7 @@ def robust_eq(obj1, obj2):
             map(lambda t: robust_eq(*t), zip(obj1, obj2)))
     else:
         return obj1 == obj2
+
+
+def make_name(s):
+    return ast.Name(id=s, ctx=ast.Load())
