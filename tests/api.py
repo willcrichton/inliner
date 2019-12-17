@@ -1,3 +1,5 @@
+import functools
+
 def inline_basic(x, flag=True):
     if flag:
         return x
@@ -34,3 +36,14 @@ class ClassProperty:
     @property
     def bar(self):
         return self.foo
+
+
+def dec_test(f):
+    @functools.wraps(f)
+    def newf(*args, **kwargs):
+        return f(*args, **kwargs) + 2
+    return newf
+
+@dec_test
+def function_decorator(x):
+    return x + 1

@@ -97,6 +97,9 @@ class FindCall(ast.NodeTransformer):
         self.should_inline_obj = should_inline_obj
         self.ret_var = None
 
+    def visit_FunctionDef(self, fdef):
+        return fdef
+
     def visit_Attribute(self, attr):
         try:
             prop_obj = eval(a2s(attr.value), self.globls, self.globls)
@@ -115,9 +118,8 @@ class FindCall(ast.NodeTransformer):
                     attr.attr, a2s(attr.value)))
                 self.ret_var = self.fresh('prop_{}'.format(attr.attr))
                 return make_name(self.ret_var)
-        else:
-            self.generic_visit(attr)
 
+        self.generic_visit(attr)
         return attr
 
     def get_func_name(self, func):
@@ -132,11 +134,13 @@ class FindCall(ast.NodeTransformer):
         try:
             call_obj = eval(a2s(call_expr.func), self.globls, self.locls)
         except Exception:
-            print('ERROR', a2s(call_expr))
-            raise
+            # print('ERROR', a2s(call_expr))
+            return call_expr
+            #raise
 
         if self.should_inline_obj(call_obj):
             if self.call_expr is not None:
+                print(a2s(call_expr).strip())
                 raise Exception("Multiple valid call expr")
 
             self.call_expr = call_expr
@@ -145,9 +149,8 @@ class FindCall(ast.NodeTransformer):
             func_name = self.get_func_name(call_expr.func)
             self.ret_var = self.fresh(f'{func_name}_ret')
             return make_name(self.ret_var)
-        else:
-            self.generic_visit(call_expr)
 
+        self.generic_visit(call_expr)
         return call_expr
 
 
@@ -232,7 +235,8 @@ class ReplaceSelf(ast.NodeTransformer):
     def visit_Call(self, expr):
         if isinstance(expr.func, ast.Attribute) and \
             isinstance(expr.func.value, ast.Name) and \
-            expr.func.value.id == 'self':
+            expr.func.value.id == 'self' and \
+            hasattr(self.cls, expr.func.attr): # e.g. calling self.model() where model is attr, not method
 
             expr.func.value = make_name(self.cls.__name__)
 
@@ -354,8 +358,8 @@ class CollectCopyableAssignments(ast.NodeTransformer):
             except Exception as e:
                 print('WARNING: could not compare for equality on key `{}`:'.
                       format(k))
-                print('Inital', self.tracer.reads[k][0][0])
-                print('Final', self.tracer.reads[k][-1][0])
+                print('Inital', str(self.tracer.reads[k][0][0])[:100])
+                print('Final', str(self.tracer.reads[k][-1][0])[:100])
                 print(e)
                 print('=' * 30)
 
@@ -368,6 +372,11 @@ class CollectCopyableAssignments(ast.NodeTransformer):
             should_prop = ShouldCopyPropagate()
             should_prop.visit(stmt.value)
 
+            # if k == 'args___decorate_no_grad':
+            #     print(self.tracer.reads[k][0][0],
+            #           self.tracer.reads[k][-1][0])
+
+
             if self.tracer.set_count[k] == self.baseline_execs and \
                can_propagate and \
                should_prop.should_propagate(k, self.generated_vars):
@@ -375,6 +384,31 @@ class CollectCopyableAssignments(ast.NodeTransformer):
                 return None
 
         return stmt
+
+
+class CollectArrayLiterals(ast.NodeVisitor):
+    def __init__(self):
+        self.arrays = {}
+
+    def visit_Assign(self, assgn):
+        if isinstance(assgn.value, ast.List) and \
+           len(assgn.targets) == 1 and isinstance(assgn.targets[0], ast.Name):
+            self.arrays[assgn.targets[0].id] = assgn.value
+
+
+class InlineArrayIndex(ast.NodeTransformer):
+    def __init__(self, arrays):
+        self.arrays = arrays
+
+    def visit_Subscript(self, expr):
+        if isinstance(expr.value, ast.Name) and \
+           expr.value.id in self.arrays and \
+           isinstance(expr.slice, ast.Index) and \
+           isinstance(expr.slice.value, ast.Num):
+            return self.arrays[expr.value.id].elts[expr.slice.value.n]
+        self.generic_visit(expr)
+        return expr
+
 
 
 class SimplifyKwargs(ast.NodeTransformer):
@@ -433,3 +467,12 @@ def collect_imports(call_obj):
     import_collector.visit(
         ast.parse(open(inspect.getsourcefile(call_obj)).read()))
     return import_collector.imprts
+
+
+class RemoveFunctoolsWraps(ast.NodeTransformer):
+    def visit_FunctionDef(self, fdef):
+        if len(fdef.decorator_list) == 1:
+            dec = fdef.decorator_list[0]
+            if isinstance(dec, ast.Call) and compare_ast(dec.func, parse_expr("functools.wraps")):
+                fdef.decorator_list = []
+        return fdef

@@ -11,7 +11,7 @@ import itertools
 
 from .common import *
 from .visitors import *
-from .tracer import FrameAnalyzer, Tracer, compile_and_exec
+from .tracer import *
 
 
 class Inliner:
@@ -22,6 +22,9 @@ class Inliner:
         self.generated_vars = defaultdict(int)
 
     def fresh(self, prefix='var'):
+        """
+        Creates a new variable semi-guaranteed to not exist in the program.
+        """
         self.generated_vars[prefix] += 1
         count = self.generated_vars[prefix]
         if count == 1:
@@ -29,38 +32,73 @@ class Inliner:
         else:
             return f'{prefix}_{count}'
 
-    def return_var(self, var):
-        self.generated_vars[var.split('_')[0]] -= 1
-
     def is_source_obj(self, obj):
+        """
+        Checks if runtime object was defined in the inliner source.
+
+        Requires that the executed code was run through tracer.compile_and_exec
+        """
         try:
-            if os.path.basename(inspect.getfile(obj))[:6] == 'inline':
+            if os.path.basename(inspect.getfile(obj)) == FILE_PREFIX:
                 return True
         except TypeError:
-            return False
+            pass
+
+        return False
 
     def should_inline_obj(self, obj):
+        """
+        Checks whether a runtime object is something to bne inlined.
+        """
         module = inspect.getmodule(obj)
 
+        # Unconditionally inline objects defined in the source
         if self.is_source_obj(obj):
             return True
 
-        if module is not None:
-            module_parts = module.__name__.split('.')
-            for target in self.to_inline:
-                if isinstance(target, str):
-                    target_mod = target.split('.')
-                    if module_parts[:len(target_mod)] == target_mod:
+        # Don't inline objects without a module
+        if module is None:
+            return False
+
+        # TODO: make this if/elif into a generic InlineTarget
+        for target in self.to_inline:
+            if isinstance(target, str):
+                module_parts = module.__name__.split('.')
+                target_mod = target.split('.')
+                if module_parts[:len(target_mod)] == target_mod:
+                    return True
+            elif inspect.isfunction(target):
+                if inspect.ismethod(obj):
+                    cls = obj.__self__.__class__
+                    if hasattr(cls, target.__name__) and getattr(
+                            cls, target.__name__) == target:
                         return True
-                elif inspect.isfunction(target):
-                    if inspect.ismethod(obj):
-                        cls = obj.__self__.__class__
-                        if hasattr(cls, target.__name__) and getattr(
-                                cls, target.__name__) == target:
-                            return True
-                    elif inspect.isfunction(obj):
-                        if obj.__name__ == target.__name__:
-                            return True
+                elif inspect.isfunction(obj):
+                    if obj.__name__ == target.__name__:
+                        return True
+            elif inspect.isclass(target):
+                # e.g. target()
+                try:
+                    constructor = target == obj or issubclass(obj, target)
+                except Exception:
+                    constructor = False
+
+                # e.g. f = target(); f.foo()
+                bound_method = inspect.ismethod(obj) and isinstance(obj.__self__, target)
+
+                # e.g. f = target(); target.foo(f)
+                # https://stackoverflow.com/questions/3589311/get-defining-class-of-unbound-method-object-in-python-3
+                if inspect.isfunction(obj):
+                    qname = obj.__qualname__.split('.')
+                    unbound_method = len(qname) > 1 and qname[-2] == target.__name__
+                else:
+                    unbound_method = False
+
+                # e.g. f = target(); f()
+                dunder_call = isinstance(obj, target)
+
+                if constructor or bound_method or unbound_method or dunder_call:
+                    return True
 
         return False
 
@@ -94,6 +132,9 @@ class Inliner:
                                      cls,
                                      call_obj=call_obj,
                                      file_imports=file_imports)
+
+    def expand_callable(self, call_expr):
+        call_expr.func = ast.Attribute(value=call_expr.func, attr='__call__')
 
     def inline_generator_function(self, call_obj, call_expr, ret_var, globls):
         f_ast = parse_stmt(textwrap.dedent(inspect.getsource(call_obj)))
@@ -136,11 +177,40 @@ class Inliner:
 
             f_ast = parse_stmt(f_source)
 
+        f_ast.name = self.fresh(f_ast.name)
         args_def = f_ast.args
 
+        decorators = f_ast.decorator_list
+        if len(decorators) > 0:
+            if isinstance(decorators[0], ast.Name) and \
+               (decorators[0].id == 'property' or decorators[0].id == 'classmethod'):
+                pass
+            else:
+                used_globals = UsedGlobals(call_obj.__globals__)
+                used_globals.visit(f_ast)
+                used = used_globals.used
+                file_imports = collect_imports(call_obj)
+                for name, globl in used_globals.used.items():
+                    imprt = self.generate_imports(name,
+                                                  globl,
+                                                  call_obj=call_obj,
+                                                  file_imports=file_imports)
+                    if imprt is not None:
+                        new_stmts.insert(0, imprt)
+
+                f_ast.decorator_list = []
+                new_stmts.append(f_ast)
+
+                call_expr.func = ast.Call(func=decorators[0], args=[make_name(f_ast.name)], keywords=[])
+                new_stmts.append(ast.Assign(targets=[make_name(ret_var)], value=call_expr))
+                return new_stmts
+
+        for stmt in f_ast.body:
+            RemoveFunctoolsWraps().visit(stmt)
+
         if len(args_def.args) > 0 and args_def.args[0].arg == 'self' and \
-           isinstance(call_expr.func, ast.Attribute) and \
-           isinstance(call_expr.func.value, ast.Name):
+           (cls is not None or
+            isinstance(call_expr.func, ast.Attribute) and isinstance(call_expr.func.value, ast.Name)):
 
             if cls is None:
                 cls = globls[call_expr.func.value.id]
@@ -297,6 +367,8 @@ class Inliner:
             file_imports = collect_imports(call_obj)
 
             for name, globl in used_globals.used.items():
+                if name == 'self': # HACK
+                    continue
                 imprt = self.generate_imports(name,
                                               globl,
                                               call_obj=call_obj,
@@ -372,11 +444,21 @@ class Inliner:
                    orelse=[assgn(ifexp.orelse)])
         ]
 
+    def expand_with(self, withstmt):
+        assert len(withstmt.items) == 1
+        assert withstmt.items[0].optional_vars is None
+
+        enter = parse_expr("None.__enter__()")
+        exit_ = parse_expr("None.__exit__()")
+        enter.func.value = withstmt.items[0].context_expr
+        exit_.func.value = withstmt.items[0].context_expr
+        return [enter] + withstmt.body + [exit_]
+
     def make_program(self, comments=False):
         return '\n'.join(
             [a2s(stmt, comments=comments).rstrip() for stmt in self.stmts])
 
-    def stmt_recurse(self, stmts, f, blocks_also=False):
+    def stmt_recurse(self, stmts, f, blocks_also=False, functions_also=True):
         def aux(stmts):
             new_stmts = []
             for stmt in stmts:
@@ -388,7 +470,8 @@ class Inliner:
                     stmt.body = aux(stmt.body)
                     new_stmts.extend(f(stmt) if blocks_also else [stmt])
                 elif isinstance(stmt, ast.FunctionDef):
-                    stmt.body = aux(stmt.body)
+                    if functions_also:
+                        stmt.body = aux(stmt.body)
                     new_stmts.extend(f(stmt) if blocks_also else [stmt])
                 elif isinstance(stmt, ast.With):
                     stmt.body = aux(stmt.body)
@@ -423,7 +506,13 @@ class Inliner:
                 new_stmts = check_inline(expr)
                 stmt.iter = expr.value
                 return new_stmts[:-1] + [stmt]
-            elif isinstance(stmt, (ast.If, ast.FunctionDef, ast.With)):
+            elif isinstance(stmt, ast.With):
+                context = eval(a2s(stmt.items[0].context_expr), globls, globls)
+                if self.should_inline_obj(context):
+                    return self.expand_with(stmt)
+                else:
+                    return [stmt]
+            elif isinstance(stmt, (ast.If, ast.FunctionDef)):
                 return [stmt]
 
             ifexp_finder = FindIfExp(self.fresh)
@@ -474,8 +563,14 @@ class Inliner:
                     new_stmts.extend(
                         self.inline_constructor(call_obj, call_expr, ret_var,
                                                 globls))
+                elif hasattr(call_obj, '__call__'):
+                    self.expand_callable(call_expr)
+                    new_stmts.append(
+                        ast.Assign(targets=[make_name(ret_var)],
+                                   value=call_expr))
+
                 else:
-                    print(call_obj, type(call_obj))
+                    print(call_obj, type(call_obj), a2s(call_expr).strip())
                     raise NotYetImplemented
 
                 change = True
@@ -485,7 +580,8 @@ class Inliner:
 
         self.stmts = self.stmt_recurse(self.stmts,
                                        check_inline,
-                                       blocks_also=True)
+                                       blocks_also=True,
+                                       functions_also=False)
         return change
 
     def expand_self(self):
@@ -583,6 +679,13 @@ class Inliner:
                 if len(aliases) > 0:
                     stmt.names = aliases
                     new_stmts.append(stmt)
+
+            elif isinstance(stmt, ast.FunctionDef):
+                if len(tracer.reads[stmt.name]) == 0:
+                    change = True
+                else:
+                    new_stmts.append(stmt)
+
             else:
                 new_stmts.append(stmt)
         self.stmts = new_stmts
@@ -775,6 +878,14 @@ class Inliner:
         tracer = Tracer(prog, opcode=True)
         tracer.trace()
         self.stmts = ast.parse(prog).body
+
+        collector = CollectArrayLiterals()
+        for stmt in self.stmts:
+            collector.visit(stmt)
+
+        inline_array = InlineArrayIndex(collector.arrays)
+        for stmt in self.stmts:
+            inline_array.visit(stmt)
 
         simplifier = SimplifyKwargs(tracer.globls)
         for stmt in self.stmts:

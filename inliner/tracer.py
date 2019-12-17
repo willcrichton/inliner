@@ -5,8 +5,9 @@ from copy import deepcopy
 from tempfile import NamedTemporaryFile
 
 
+FILE_PREFIX = 'inline'
 def compile_and_exec(code, globls):
-    with NamedTemporaryFile(delete=False, prefix='inline') as f:
+    with NamedTemporaryFile(delete=False, prefix=FILE_PREFIX) as f:
         f.write(code.encode('utf-8'))
         f.flush()
         exec(compile(code, f.name, 'exec'), globls)

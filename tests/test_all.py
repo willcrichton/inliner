@@ -13,13 +13,13 @@ def basic_schedule(inliner):
     inliner.clean_imports()
 
 
-def harness(fn, schedule):
+def harness(fn, schedule, apis=['apis']):
     # Execute the function to make sure it works without inlining
     fn()
 
     # Then execute with inlining
     try:
-        inliner = Inliner(fn, ['api'])
+        inliner = Inliner(fn, apis)
         schedule(inliner)
         globls = {}
         exec(inliner.make_program(comments=True), globls, globls)
@@ -61,3 +61,20 @@ def test_class_property():
         assert c.bar == 1
 
     harness(class_property, basic_schedule)
+
+
+def test_function_decorator():
+    def function_decorator():
+        from api import function_decorator
+        assert function_decorator(1) == 4
+
+    harness(function_decorator, basic_schedule)
+
+
+def test_seaborn_boxplot():
+    def make_plot():
+        import seaborn as sns
+        iris = sns.load_dataset('iris')
+        sns.boxplot(x=iris.species, y=iris.petal_length)
+
+    harness(make_plot, basic_schedule, apis=['seaborn.categorical'])
