@@ -14,25 +14,6 @@ class FindFunctions(ast.NodeVisitor):
         self.generic_visit(fdef)
 
 
-class ExpandObjs(ast.NodeTransformer):
-    def __init__(self, globls, objs_to_inline):
-        self.globls = globls
-        self.objs_to_inline = objs_to_inline
-
-    def visit_Attribute(self, attr):
-        if isinstance(attr.value, ast.Name):
-            name = attr.value.id
-            if name in self.globls:
-                obj = self.globls[name]
-                if id(obj) in self.objs_to_inline:
-                    new_name = self.objs_to_inline[id(obj)]
-                    return make_name(f'{new_name}{SEP}{attr.attr}')
-        else:
-            self.generic_visit(attr)
-
-        return attr
-
-
 class Rename(ast.NodeTransformer):
     def __init__(self, src, dst):
         self.src = src
@@ -88,13 +69,11 @@ class FindAssignments(ast.NodeVisitor):
 
 
 class FindCall(ast.NodeTransformer):
-    def __init__(self, fresh, globls, locls, should_inline_obj):
+    def __init__(self, inliner, globls):
         self.call_obj = None
         self.call_expr = None
-        self.fresh = fresh
+        self.inliner = inliner
         self.globls = globls
-        self.locls = locls
-        self.should_inline_obj = should_inline_obj
         self.ret_var = None
 
     def visit_FunctionDef(self, fdef):
@@ -108,7 +87,7 @@ class FindCall(ast.NodeTransformer):
             return attr
             #raise
 
-        if self.should_inline_obj(prop_obj) and \
+        if self.inliner.should_inline(prop_obj) and \
            hasattr(prop_obj, '__class__') and \
            hasattr(prop_obj.__class__, attr.attr):
             prop = getattr(prop_obj.__class__, attr.attr)
@@ -116,7 +95,7 @@ class FindCall(ast.NodeTransformer):
                 self.call_obj = prop.fget
                 self.call_expr = parse_expr("{}_getter({})".format(
                     attr.attr, a2s(attr.value)))
-                self.ret_var = self.fresh('prop_{}'.format(attr.attr))
+                self.ret_var = self.inliner.fresh('prop_{}'.format(attr.attr))
                 return make_name(self.ret_var)
 
         self.generic_visit(attr)
@@ -132,13 +111,13 @@ class FindCall(ast.NodeTransformer):
 
     def visit_Call(self, call_expr):
         try:
-            call_obj = eval(a2s(call_expr.func), self.globls, self.locls)
+            call_obj = eval(a2s(call_expr.func), self.globls, self.globls)
         except Exception:
             # print('ERROR', a2s(call_expr))
             return call_expr
             #raise
 
-        if self.should_inline_obj(call_obj):
+        if self.inliner.should_inline(call_obj):
             if self.call_expr is not None:
                 print(a2s(call_expr).strip())
                 raise Exception("Multiple valid call expr")
@@ -147,7 +126,7 @@ class FindCall(ast.NodeTransformer):
             self.call_obj = call_obj
 
             func_name = self.get_func_name(call_expr.func)
-            self.ret_var = self.fresh(f'{func_name}_ret')
+            self.ret_var = self.inliner.fresh(f'{func_name}_ret')
             return make_name(self.ret_var)
 
         self.generic_visit(call_expr)
@@ -290,14 +269,14 @@ class FindComprehension(ast.NodeTransformer):
 
 
 class FindIfExp(ast.NodeTransformer):
-    def __init__(self, fresh):
-        self.fresh = fresh
+    def __init__(self, inliner):
+        self.inliner = inliner
         self.ifexp = None
         self.ret_var = None
 
     def visit_IfExp(self, ifexp):
         self.ifexp = ifexp
-        self.ret_var = self.fresh('ifexp')
+        self.ret_var = self.inliner.fresh('ifexp')
         return make_name(self.ret_var)
 
 
@@ -309,81 +288,6 @@ class CollectLineNumbers(ast.NodeVisitor):
         if hasattr(node, 'lineno'):
             self.linenos.add(node.lineno)
         super().generic_visit(node)
-
-
-MAX_TREESIZE = 10  # TODO: good value for this?
-
-
-class ShouldCopyPropagate(ast.NodeVisitor):
-    def __init__(self):
-        self.size = 0
-        self.has_call = False
-
-    def should_propagate(self, name, generated_vars):
-        return (name.split('_')[0] in generated_vars) or \
-            (self.size <= MAX_TREESIZE and not self.has_call)
-
-    def generic_visit(self, node):
-        self.size += 1
-        super().generic_visit(node)
-
-    def visit_Call(self, node):
-        self.has_call = True
-        self.generic_visit(node)
-
-
-class CollectCopyableAssignments(ast.NodeTransformer):
-    def __init__(self, tracer, generated_vars):
-        self.assignments = []
-        self.generated_vars = generated_vars
-        self.tracer = tracer
-        self.baseline_execs = 1
-
-    def visit_For(self, loop):
-        loop_iters = self.tracer.execed_lines[loop.lineno] - 1
-        if loop_iters > 0:
-            self.baseline_execs *= loop_iters
-            self.generic_visit(loop)
-            self.baseline_execs /= loop_iters
-        return loop
-
-    def visit_Assign(self, stmt):
-        if len(stmt.targets) == 1 and \
-           isinstance(stmt.targets[0], ast.Name):
-            k = stmt.targets[0].id
-            try:
-                val_eq = len(self.tracer.reads[k]) == 0 or \
-                   bool(robust_eq(self.tracer.reads[k][0][0],
-                                  self.tracer.reads[k][-1][0]))
-            except Exception as e:
-                print('WARNING: could not compare for equality on key `{}`:'.
-                      format(k))
-                print('Inital', str(self.tracer.reads[k][0][0])[:100])
-                print('Final', str(self.tracer.reads[k][-1][0])[:100])
-                print(e)
-                print('=' * 30)
-
-                val_eq = False
-
-            can_propagate = val_eq or \
-                len(self.tracer.reads[k]) == self.baseline_execs or \
-                isinstance(stmt.value, ast.Name)
-
-            should_prop = ShouldCopyPropagate()
-            should_prop.visit(stmt.value)
-
-            # if k == 'args___decorate_no_grad':
-            #     print(self.tracer.reads[k][0][0],
-            #           self.tracer.reads[k][-1][0])
-
-
-            if self.tracer.set_count[k] == self.baseline_execs and \
-               can_propagate and \
-               should_prop.should_propagate(k, self.generated_vars):
-                self.assignments.append((k, stmt.value))
-                return None
-
-        return stmt
 
 
 class CollectArrayLiterals(ast.NodeVisitor):
@@ -410,10 +314,13 @@ class InlineArrayIndex(ast.NodeTransformer):
         return expr
 
 
-
 class SimplifyKwargs(ast.NodeTransformer):
     def __init__(self, globls):
         self.globls = globls
+
+    def visit_FunctionDef(self, fdef):
+        # Don't recurse into function definitions
+        return fdef
 
     def visit_Call(self, call):
         kwarg = [(i, kw.value) for i, kw in enumerate(call.keywords)
@@ -473,6 +380,7 @@ class RemoveFunctoolsWraps(ast.NodeTransformer):
     def visit_FunctionDef(self, fdef):
         if len(fdef.decorator_list) == 1:
             dec = fdef.decorator_list[0]
-            if isinstance(dec, ast.Call) and compare_ast(dec.func, parse_expr("functools.wraps")):
+            if isinstance(dec, ast.Call) and compare_ast(
+                    dec.func, parse_expr("functools.wraps")):
                 fdef.decorator_list = []
         return fdef

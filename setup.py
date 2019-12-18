@@ -10,8 +10,8 @@ if __name__ == "__main__":
           license='Apache 2.0',
           packages=['inliner'],
           install_requires=[
-              'astor', 'iterextras', 'numpy', 'pandas', 'astpretty'
+              'astor', 'iterextras', 'numpy', 'pandasI', 'astpretty'
           ],
           setup_requires=['pytest-runner'],
-          tests_require=['pytest'],
+          tests_require=['pytest', 'seaborn'],
           zip_safe=False)

@@ -2,18 +2,29 @@ from inliner import Inliner
 
 
 def basic_schedule(inliner):
+    did_inline = False
     while True:
         if not inliner.inline():
             break
         inliner.fixpoint(inliner.deadcode)
+        did_inline = True
 
-    inliner.expand_self()
-    inliner.unread_vars()
-    inliner.copy_propagation()
+    assert did_inline
+
+    while True:
+        any_pass = inliner.expand_self() or \
+            inliner.unread_vars() or \
+            inliner.lifetimes() or \
+            inliner.copy_propagation() or \
+            inliner.simplify_kwargs() or \
+            inliner.expand_tuples()
+        if not any_pass:
+            break
+
     inliner.clean_imports()
 
 
-def harness(fn, schedule, apis=['apis']):
+def harness(fn, schedule, apis=['api']):
     # Execute the function to make sure it works without inlining
     fn()
 
@@ -21,6 +32,8 @@ def harness(fn, schedule, apis=['apis']):
     try:
         inliner = Inliner(fn, apis)
         schedule(inliner)
+        prog = inliner.make_program(comments=True)
+        print(prog)
         globls = {}
         exec(inliner.make_program(comments=True), globls, globls)
     except Exception:
@@ -69,6 +82,24 @@ def test_function_decorator():
         assert function_decorator(1) == 4
 
     harness(function_decorator, basic_schedule)
+
+
+def test_comprehension():
+    def comprehension():
+        from api import dummy
+        l = [dummy() for _ in range(10)]
+        assert sum(l) == 10
+
+    harness(comprehension, basic_schedule)
+
+
+def test_ifexp():
+    def ifexp():
+        from api import dummy
+        n = 1 if dummy() == 1 else 0
+        assert n == 1
+
+    harness(ifexp, basic_schedule)
 
 
 def test_seaborn_boxplot():

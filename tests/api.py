@@ -1,5 +1,10 @@
 import functools
 
+
+def dummy():
+    return 1
+
+
 def inline_basic(x, flag=True):
     if flag:
         return x
@@ -42,7 +47,9 @@ def dec_test(f):
     @functools.wraps(f)
     def newf(*args, **kwargs):
         return f(*args, **kwargs) + 2
+
     return newf
+
 
 @dec_test
 def function_decorator(x):

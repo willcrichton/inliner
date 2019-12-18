@@ -4,8 +4,9 @@ from collections import defaultdict
 from copy import deepcopy
 from tempfile import NamedTemporaryFile
 
-
 FILE_PREFIX = 'inline'
+
+
 def compile_and_exec(code, globls):
     with NamedTemporaryFile(delete=False, prefix=FILE_PREFIX) as f:
         f.write(code.encode('utf-8'))
@@ -22,10 +23,14 @@ class FrameAnalyzer:
         self.cur_i = self.frame.f_lasti
 
     def current_instr(self):
-        return [i for i in self.bytecode if i.offset == self.cur_i][0]
+        for i in self.bytecode:
+            if i.offset == self.cur_i:
+                return i
 
     def next_instr(self):
-        return [i for i in self.bytecode if i.offset > self.cur_i][0]
+        for i in self.bytecode:
+            if i.offset > self.cur_i:
+                return i
 
 
 class ValueUnknown:
@@ -33,13 +38,18 @@ class ValueUnknown:
 
 
 class Tracer:
-    def __init__(self, prog, opcode=False, debug=False):
+    def __init__(self,
+                 prog,
+                 trace_lines=False,
+                 trace_opcodes=False,
+                 debug=False):
         self.prog = prog
         self.reads = defaultdict(list)
         self.stores = defaultdict(list)
         self.set_count = defaultdict(int)
         self.execed_lines = defaultdict(int)
-        self.opcode = opcode
+        self.trace_opcodes = trace_opcodes
+        self.trace_lines = trace_lines
         self.globls = {}
         self._last_store = None
         self.debug = debug
@@ -62,8 +72,18 @@ class Tracer:
         return value
 
     def _trace_fn(self, frame, event, arg):
-        if self.opcode and frame.f_code.co_filename == '__inline':
+        if self.trace_opcodes and \
+           frame.f_code.co_filename == self._fname:
             frame.f_trace_opcodes = True
+        else:
+            frame.f_trace_opcodes = False
+
+        if self.trace_lines and \
+           frame.f_code.co_filename == self._fname:
+            frame.f_trace_lines = True
+        else:
+            frame.f_trace_lines = False
+
         if event == 'opcode':
             # The effect of a store appearing in f_locals/globals seems
             # to only happen after f_lasti advances beyond the STORE_NAME
@@ -85,17 +105,28 @@ class Tracer:
             elif instr.opname in ['LOAD_NAME', 'LOAD_FAST', 'LOAD_GLOBAL']:
                 self.reads[name].append((self.get_value(frame,
                                                         name), frame.f_lineno))
-        elif event == 'line':
-            if frame.f_code.co_filename == '__inline':
-                self.execed_lines[frame.f_lineno] += 1
+
+        elif event == 'line' and frame.f_code.co_filename == self._fname:
+            self.execed_lines[frame.f_lineno] += 1
+
         return self._trace_fn
 
     def trace(self):
-        try:
-            prog_bytecode = compile(self.prog, '__inline', 'exec')
-            sys.settrace(self._trace_fn)
-            exec(prog_bytecode, self.globls, self.globls)
-            sys.settrace(None)
-        except Exception:
-            print(self.prog)
-            raise
+        with NamedTemporaryFile(delete=False, prefix=FILE_PREFIX) as f:
+            f.write(self.prog.encode('utf-8'))
+            f.flush()
+            self._fname = f.name
+
+            should_trace = self.trace_lines or self.trace_opcodes
+            try:
+                prog_bytecode = compile(self.prog, f.name, 'exec')
+                if should_trace:
+                    sys.settrace(self._trace_fn)
+                exec(prog_bytecode, self.globls, self.globls)
+                if should_trace:
+                    sys.settrace(None)
+            except Exception:
+                print(self.prog)
+                raise
+
+        return self
