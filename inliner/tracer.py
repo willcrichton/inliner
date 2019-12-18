@@ -122,7 +122,13 @@ class Tracer:
                 prog_bytecode = compile(self.prog, f.name, 'exec')
                 if should_trace:
                     sys.settrace(self._trace_fn)
+
+                # Can't seem to access local variables in a list comprehension?
+                # import x; [x.foo() for _ in range(10)]
+                # https://github.com/inducer/pudb/issues/103
+                # For now, just only use globals
                 exec(prog_bytecode, self.globls, self.globls)
+
                 if should_trace:
                     sys.settrace(None)
             except Exception:

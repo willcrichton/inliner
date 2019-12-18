@@ -12,7 +12,15 @@ import itertools
 from .common import *
 from .visitors import *
 from .tracer import *
-from .passes import *
+
+from .passes.clean_imports import CleanImportsPass
+from .passes.copy_propagation import CopyPropagationPass
+from .passes.deadcode import DeadcodePass
+from .passes.expand_self import ExpandSelfPass
+from .passes.expand_tuples import ExpandTuplesPass
+from .passes.inline import InlinePass
+from .passes.lifetimes import LifetimesPass
+from .passes.unread_vars import UnreadVarsPass
 
 
 class InlineTarget:
@@ -152,7 +160,7 @@ class Inliner:
 
     def should_inline(self, obj):
         """
-        Checks whether a runtime object is something to bne inlined.
+        Checks whether a runtime object is something to be inlined.
         """
         module = inspect.getmodule(obj)
 
@@ -174,10 +182,6 @@ class Inliner:
         return a2s(self.module, comments=comments).rstrip()
 
     def inline(self, debug=False):
-        # Can't seem to access local variables in a list comprehension?
-        # import x; [x.foo() for _ in range(10)]
-        # https://github.com/inducer/pudb/issues/103
-        # For now, just only use globals
         return InlinePass(self).run()
 
     def expand_self(self):
