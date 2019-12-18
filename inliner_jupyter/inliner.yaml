@@ -1,0 +1,8 @@
+Type: IPython Notebook Extension
+Name: API Inliner
+Description:
+Link: readme.md
+Icon: icon.png
+Main: main.js
+Compatibility: 4.x, 5.x
+Parameters:
