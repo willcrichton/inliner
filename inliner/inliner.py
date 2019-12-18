@@ -12,15 +12,7 @@ import itertools
 from .common import *
 from .visitors import *
 from .tracer import *
-
-from .passes.clean_imports import CleanImportsPass
-from .passes.copy_propagation import CopyPropagationPass
-from .passes.deadcode import DeadcodePass
-from .passes.expand_self import ExpandSelfPass
-from .passes.expand_tuples import ExpandTuplesPass
-from .passes.inline import InlinePass
-from .passes.lifetimes import LifetimesPass
-from .passes.unread_vars import UnreadVarsPass
+from .passes import *
 
 
 class InlineTarget:
@@ -205,17 +197,11 @@ class Inliner:
     def deadcode(self):
         return DeadcodePass(self).run()
 
-    def simplify_kwargs(self):
-        prog = self.make_program()
-        tracer = Tracer(prog, trace_opcodes=True)
-        tracer.trace()
-        mod = ast.parse(prog)
+    def array_indices(self):
+        return ArrayIndexPass(self).run()
 
-        collector = CollectArrayLiterals()
-        collector.visit(mod)
-
-        InlineArrayIndex(collector.arrays).visit(mod)
-        SimplifyKwargs(tracer.globls).visit(mod)
+    def simplify_varargs(self):
+        return SimplifyVarargsPass(self).run()
 
     def remove_suffixes(self):
         # TODO: make this robust by avoiding name collisions

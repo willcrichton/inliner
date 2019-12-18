@@ -3,7 +3,6 @@ import inspect
 
 from .base_pass import BasePass
 from ..common import a2s, parse_expr, make_name
-from ..visitors import FindCall
 from ..transforms import ContextualTransforms
 
 
@@ -14,9 +13,6 @@ class FindCall(ast.NodeTransformer):
         self.inliner = inliner
         self.globls = globls
         self.ret_var = None
-
-    def visit_FunctionDef(self, fdef):
-        return fdef
 
     def visit_Attribute(self, attr):
         try:

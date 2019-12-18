@@ -3,8 +3,6 @@ from .base_pass import BasePass
 
 
 class ExpandTuplesPass(BasePass):
-    tracer_args = None
-
     def visit_Assign(self, stmt):
         if isinstance(stmt.value, ast.Tuple):
             if len(stmt.targets) > 1:

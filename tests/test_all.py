@@ -16,7 +16,7 @@ def basic_schedule(inliner):
             inliner.unread_vars() or \
             inliner.lifetimes() or \
             inliner.copy_propagation() or \
-            inliner.simplify_kwargs() or \
+            inliner.simplify_varargs() or \
             inliner.expand_tuples()
         if not any_pass:
             break

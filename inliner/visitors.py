@@ -5,15 +5,6 @@ import inspect
 from .common import *
 
 
-class FindFunctions(ast.NodeVisitor):
-    def __init__(self):
-        self.fns = []
-
-    def visit_FunctionDef(self, fdef):
-        self.fns.append(fdef.name)
-        self.generic_visit(fdef)
-
-
 class Rename(ast.NodeTransformer):
     def __init__(self, src, dst):
         self.src = src
@@ -196,55 +187,6 @@ class CollectLineNumbers(ast.NodeVisitor):
         if hasattr(node, 'lineno'):
             self.linenos.add(node.lineno)
         super().generic_visit(node)
-
-
-class CollectArrayLiterals(ast.NodeVisitor):
-    def __init__(self):
-        self.arrays = {}
-
-    def visit_Assign(self, assgn):
-        if isinstance(assgn.value, ast.List) and \
-           len(assgn.targets) == 1 and isinstance(assgn.targets[0], ast.Name):
-            self.arrays[assgn.targets[0].id] = assgn.value
-
-
-class InlineArrayIndex(ast.NodeTransformer):
-    def __init__(self, arrays):
-        self.arrays = arrays
-
-    def visit_Subscript(self, expr):
-        if isinstance(expr.value, ast.Name) and \
-           expr.value.id in self.arrays and \
-           isinstance(expr.slice, ast.Index) and \
-           isinstance(expr.slice.value, ast.Num):
-            return self.arrays[expr.value.id].elts[expr.slice.value.n]
-        self.generic_visit(expr)
-        return expr
-
-
-class SimplifyKwargs(ast.NodeTransformer):
-    def __init__(self, globls):
-        self.globls = globls
-
-    def visit_FunctionDef(self, fdef):
-        # Don't recurse into function definitions
-        return fdef
-
-    def visit_Call(self, call):
-        kwarg = [(i, kw.value) for i, kw in enumerate(call.keywords)
-                 if kw.arg is None]
-        if len(kwarg) == 1:
-            i, kwarg = kwarg[0]
-
-            try:
-                kwarg_obj = eval(a2s(kwarg), self.globls, self.globls)
-            except Exception:
-                print('ERROR', a2s(call))
-                raise
-
-            if len(kwarg_obj) == 0:
-                del call.keywords[i]
-        return call
 
 
 class CollectImports(ast.NodeVisitor):

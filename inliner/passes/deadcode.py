@@ -76,6 +76,3 @@ class DeadcodePass(BasePass):
         else:
             self.change = True
             return stmt.body
-
-    def visit_FunctionDef(self, fdef):
-        return fdef

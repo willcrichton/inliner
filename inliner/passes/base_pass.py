@@ -12,6 +12,8 @@ class RemoveEmptyBlocks(ast.NodeTransformer):
 
 
 class BasePass(ast.NodeTransformer):
+    tracer_args = None
+
     def __init__(self, inliner):
         self.inliner = inliner
 
@@ -35,6 +37,10 @@ class BasePass(ast.NodeTransformer):
         RemoveEmptyBlocks().visit(mod)
         self.after_visit(mod)
         return mod
+
+    def visit_FunctionDef(self, fdef):
+        # Don't recurse into inline function definitions
+        return fdef
 
     def run(self):
         self.visit(self.inliner.module)
