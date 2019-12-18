@@ -4,7 +4,7 @@ before_install:
   - git clone https://github.com/berkerpeksag/astor/
   - pushd astor && pip3 install . && popd
 install: pip3 install .
-script: python3 setup.py test
+script: travis_wait python3 setup.py test
 deploy:
   skip_cleanup: true
   provider: pypi
