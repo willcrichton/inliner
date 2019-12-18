@@ -8,3 +8,16 @@ from .inline import InlinePass
 from .lifetimes import LifetimesPass
 from .simplify_varargs import SimplifyVarargsPass
 from .unread_vars import UnreadVarsPass
+
+PASSES = [
+    ArrayIndexPass,
+    CleanImportsPass,
+    CopyPropagationPass,
+    DeadcodePass,
+    ExpandSelfPass,
+    ExpandTuplesPass,
+    InlinePass,
+    LifetimesPass,
+    SimplifyVarargsPass,
+    UnreadVarsPass
+] # yapf: disable

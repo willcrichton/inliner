@@ -1,8 +1,8 @@
 import dis
 import sys
 from collections import defaultdict
-from copy import deepcopy
 from tempfile import NamedTemporaryFile
+from .common import try_copy
 
 FILE_PREFIX = 'inline'
 
@@ -40,6 +40,7 @@ class ValueUnknown:
 class Tracer:
     def __init__(self,
                  prog,
+                 globls=None,
                  trace_lines=False,
                  trace_opcodes=False,
                  debug=False):
@@ -50,7 +51,7 @@ class Tracer:
         self.execed_lines = defaultdict(int)
         self.trace_opcodes = trace_opcodes
         self.trace_lines = trace_lines
-        self.globls = {}
+        self.globls = globls.copy() or {}
         self._last_store = None
         self.debug = debug
 
@@ -64,12 +65,7 @@ class Tracer:
             value = ValueUnknown()
 
         # Attempt to copy the value if possible
-        try:
-            value = deepcopy(value)
-        except Exception:
-            pass
-
-        return value
+        return try_copy(value)
 
     def _trace_fn(self, frame, event, arg):
         if self.trace_opcodes and \

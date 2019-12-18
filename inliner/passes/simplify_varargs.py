@@ -21,7 +21,6 @@ class SimplifyVarargsPass(BasePass):
 
             if len(kwarg_obj) == 0:
                 del call.keywords[i]
-
-            self.change = True
+                self.change = True
 
         return call

@@ -8,6 +8,10 @@ import typing
 from pprint import pprint
 from astpretty import pprint as pprintast
 import itertools
+import copy
+import re
+from timeit import default_timer as now
+from functools import wraps, partial
 
 from .common import *
 from .visitors import *
@@ -97,9 +101,13 @@ class ClassTarget(InlineTarget):
 
 
 class Inliner:
-    def __init__(self, source, inline_targets):
+    def __init__(self, source, inline_targets, globls=None):
         if not isinstance(source, str):
+            if globls is None and hasattr(source, '__globals__'):
+                globls = {**source.__globals__, **get_function_locals(source)}
+
             source = inspect.getsource(source)
+
         mod = ast.parse(textwrap.dedent(source))
         if len(mod.body) == 1 and isinstance(mod.body[0], ast.FunctionDef):
             body = mod.body[0].body
@@ -107,10 +115,30 @@ class Inliner:
             body = mod.body
         self.module = ast.Module(body=body)
 
+        self.globls = globls if globls is not None else {}
+
         self.generated_vars = defaultdict(int)
         self.inline_targets = [
             self.make_inline_target(target) for target in inline_targets
         ]
+
+        def make_pass_name(name):
+            # Split "TheFooPass" into ["The", "Foo", "Pass"]
+            parts = re.findall('.[^A-Z]*', name)
+
+            # Drop "Pass"
+            parts = parts[:-1]
+
+            # Make "the_foo"
+            return '_'.join([s.lower() for s in parts])
+
+        for pass_ in PASSES:
+            name = make_pass_name(pass_.__name__)
+            fn = partial(self.run_pass, pass_)
+            fn.__name__ = name
+            setattr(self, name, fn)
+
+        self.profiling_data = defaultdict(list)
 
     def make_inline_target(self, target):
         if isinstance(target, str):
@@ -170,45 +198,22 @@ class Inliner:
 
         return False
 
+    def run_pass(self, pass_):
+        start = now()
+        change = pass_(self).run()
+        end = now() - start
+
+        self.profiling_data[pass_.__name__].append(end)
+        print(pass_.__name__, change)
+
+        return change
+
     def make_program(self, comments=False):
         return a2s(self.module, comments=comments).rstrip()
-
-    def inline(self, debug=False):
-        return InlinePass(self).run()
-
-    def expand_self(self):
-        return ExpandSelfPass(self).run()
-
-    def clean_imports(self):
-        return CleanImportsPass(self).run()
-
-    def unread_vars(self, debug=False):
-        return UnreadVarsPass(self).run()
-
-    def copy_propagation(self):
-        return CopyPropagationPass(self).run()
-
-    def lifetimes(self):
-        return LifetimesPass(self).run()
-
-    def expand_tuples(self):
-        return ExpandTuplesPass(self).run()
-
-    def deadcode(self):
-        return DeadcodePass(self).run()
-
-    def array_indices(self):
-        return ArrayIndexPass(self).run()
-
-    def simplify_varargs(self):
-        return SimplifyVarargsPass(self).run()
-
-    def remove_suffixes(self):
-        # TODO: make this robust by avoiding name collisions
-        remover = RemoveSuffix()
-        remover.visit(self.module)
-        return True
 
     def fixpoint(self, f):
         while f():
             pass
+
+    def execute(self):
+        return Tracer(self.make_program(), self.globls).trace()

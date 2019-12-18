@@ -12,12 +12,14 @@ def basic_schedule(inliner):
     assert did_inline
 
     while True:
-        any_pass = inliner.expand_self() or \
-            inliner.unread_vars() or \
-            inliner.lifetimes() or \
-            inliner.copy_propagation() or \
-            inliner.simplify_varargs() or \
+        any_pass = any([
+            inliner.expand_self(),
+            inliner.unread_vars(),
+            inliner.lifetimes(),
+            inliner.copy_propagation(),
+            inliner.simplify_varargs(),
             inliner.expand_tuples()
+        ])
         if not any_pass:
             break
 
@@ -34,8 +36,7 @@ def harness(fn, schedule, apis=['api']):
         schedule(inliner)
         prog = inliner.make_program(comments=True)
         print(prog)
-        globls = {}
-        exec(inliner.make_program(comments=True), globls, globls)
+        inliner.execute()
     except Exception:
         print(inliner.make_program(comments=True))
         raise
@@ -100,6 +101,15 @@ def test_ifexp():
         assert n == 1
 
     harness(ifexp, basic_schedule)
+
+
+def test_closure():
+    import api
+
+    def closure():
+        assert api.dummy() == 1
+
+    harness(closure, basic_schedule)
 
 
 def test_seaborn_boxplot():

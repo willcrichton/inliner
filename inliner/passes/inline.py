@@ -115,6 +115,7 @@ class InlinePass(BasePass):
         context = eval(a2s(stmt.items[0].context_expr), self.globls,
                        self.globls)
         if self.inliner.should_inline(context):
+            self.change = True
             return self.fns.expand_with(stmt)
         else:
             return [stmt]
@@ -126,7 +127,6 @@ class InlinePass(BasePass):
         return super().generic_visit(node)
 
     def _inline(self, stmt):
-        new_stmts = []
 
         ifexp_finder = FindIfExp(self.inliner)
         ifexp_finder.visit(stmt)
@@ -147,6 +147,7 @@ class InlinePass(BasePass):
         call_finder = FindCall(self.inliner, self.globls)
         call_finder.visit(stmt)
 
+        new_stmts = []
         if call_finder.call_expr is not None:
             ret_var = call_finder.ret_var
             call_expr = call_finder.call_expr

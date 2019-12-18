@@ -8,6 +8,7 @@ from iterextras import unzip
 import typing
 import math
 from astpretty import pprint as pprintast
+import copy
 
 SEP = '___'
 COMMENTS = False
@@ -133,3 +134,20 @@ def robust_eq(obj1, obj2):
 
 def make_name(s):
     return ast.Name(id=s, ctx=ast.Load())
+
+
+def try_copy(v):
+    try:
+        return copy.deepcopy(v)
+    except Exception:
+        return v
+
+
+def get_function_locals(f):
+    if f.__closure__ is not None and len(f.__closure__) > 0:
+        return {
+            var: cell.cell_contents
+            for var, cell in zip(f.__code__.co_freevars, f.__closure__)
+        }
+
+    return {}
