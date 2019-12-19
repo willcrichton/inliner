@@ -14,19 +14,58 @@ class FindCall(ast.NodeTransformer):
         self.globls = globls
         self.ret_var = None
 
-    def visit_Attribute(self, attr):
+    def visit_Call(self, call_expr):
+        # for example, self.foo(1)
         try:
+            # get the runtime object for function self.foo
+            call_obj = eval(a2s(call_expr.func), self.globls, self.globls)
+        except Exception:
+            return call_expr
+
+        if self.inliner.should_inline(call_obj):
+            # TODO: eliminate this condition
+            if self.call_expr is not None:
+                print(a2s(call_expr).strip())
+                raise Exception("Multiple valid call expr")
+
+            self.call_expr = call_expr
+            self.call_obj = call_obj
+
+            # Heuristically make a good name for the drop-in variable
+            func = call_expr.func
+            if isinstance(func, ast.Name):
+                func_name = func.id
+            elif isinstance(func, ast.Attribute):
+                func_name = func.attr
+            else:
+                func_name = 'func'
+
+            self.ret_var = self.inliner.fresh(f'{func_name}_ret')
+            return make_name(self.ret_var)
+
+        self.generic_visit(call_expr)
+        return call_expr
+
+    # Classes using @property have accessors that are actually calling
+    # functions. This visitor looks for uses of @property.
+    def visit_Attribute(self, attr):
+        # for example, foo.x where the class of foo has @property def x()
+        try:
+            # get the runtime object for foo
             prop_obj = eval(a2s(attr.value), self.globls, self.globls)
         except Exception:
-            #print('ERROR', a2s(attr.value))
+            # if we can't find it, ignore
             return attr
-            #raise
 
+        # if foo should be inlined, and it is an instance of a class,
+        # and the class has the attribute, and the attribute is a property
         if self.inliner.should_inline(prop_obj) and \
            hasattr(prop_obj, '__class__') and \
            hasattr(prop_obj.__class__, attr.attr):
             prop = getattr(prop_obj.__class__, attr.attr)
             if isinstance(prop, property):
+                # foo.x is same as Foo.x.fget(foo), so we treat the property
+                # as a function call so we can pass it to the function inliner
                 self.call_obj = prop.fget
                 self.call_expr = parse_expr("{}_getter({})".format(
                     attr.attr, a2s(attr.value)))
@@ -35,37 +74,6 @@ class FindCall(ast.NodeTransformer):
 
         self.generic_visit(attr)
         return attr
-
-    def get_func_name(self, func):
-        if isinstance(func, ast.Name):
-            return func.id
-        elif isinstance(func, ast.Attribute):
-            return func.attr
-        else:
-            return 'func'
-
-    def visit_Call(self, call_expr):
-        try:
-            call_obj = eval(a2s(call_expr.func), self.globls, self.globls)
-        except Exception:
-            # print('ERROR', a2s(call_expr))
-            return call_expr
-            #raise
-
-        if self.inliner.should_inline(call_obj):
-            if self.call_expr is not None:
-                print(a2s(call_expr).strip())
-                raise Exception("Multiple valid call expr")
-
-            self.call_expr = call_expr
-            self.call_obj = call_obj
-
-            func_name = self.get_func_name(call_expr.func)
-            self.ret_var = self.inliner.fresh(f'{func_name}_ret')
-            return make_name(self.ret_var)
-
-        self.generic_visit(call_expr)
-        return call_expr
 
 
 class FindComprehension(ast.NodeTransformer):
@@ -96,6 +104,35 @@ class FindIfExp(ast.NodeTransformer):
 
 
 class InlinePass(BasePass):
+    """
+    Primary inlining functionality. Looks for inline-able syntax objects
+    and inlines them. Currently inlines:
+    - Functions
+    - Objects (constructors and methods)
+    - Generators
+    - With blocks
+    - List comprehensions
+    - If-expressions
+
+    Basic strategy is to start at a statement, e.g. an assignment, then
+    search the assignment for inlineable objects. If one is found, it is
+    replaced by a fresh variable, and the logic to assign that variable
+    is placed above the statement.
+
+    Example:
+      def foo():
+        return 1
+      assert foo() + 1 == 2
+
+      >> becomes (roughly) >>
+
+      foo_ret = 1
+      assert foo_ret + 1 == 2
+
+    Most of the code in this module just finds the relevant objects. The
+    code to perform the inlining lives in the ContextualTransforms class
+    in transforms.py.
+    """
     tracer_args = {}
 
     def __init__(self, inliner):

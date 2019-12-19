@@ -2,6 +2,7 @@ import ast
 from .base_pass import BasePass
 
 
+# TODO: is this redundant with lifetimes?
 class UnreadVarsPass(BasePass):
     tracer_args = {'trace_opcodes': True}
 

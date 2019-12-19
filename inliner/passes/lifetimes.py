@@ -6,6 +6,23 @@ from ..visitors import CollectLineNumbers
 
 
 class LifetimesPass(BasePass):
+    """
+    Lifetime/liveness analysis to eliminate unused variables.
+
+    Analyzes whether a variable is read before being re-assigned, and eliminates
+    the assignment if unused.
+
+    Example:
+      x = 1
+      x = 2
+      assert x == 2
+
+      >> becomes >>
+
+      x = 2
+      assert x == 2
+    """
+
     tracer_args = {'trace_opcodes': True}
 
     def __init__(self, inliner):

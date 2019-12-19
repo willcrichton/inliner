@@ -122,6 +122,8 @@ class Inliner:
             self.make_inline_target(target) for target in inline_targets
         ]
 
+        self.history = [(copy.deepcopy(self.module), None)]
+
         def make_pass_name(name):
             # Split "TheFooPass" into ["The", "Foo", "Pass"]
             parts = re.findall('.[^A-Z]*', name)
@@ -200,13 +202,21 @@ class Inliner:
 
     def run_pass(self, pass_):
         start = now()
-        change = pass_(self).run()
+        try:
+            change = pass_(self).run()
+        except Exception:
+            self.module = copy.deepcopy(self.history[-1][0])
+            raise
         end = now() - start
 
         self.profiling_data[pass_.__name__].append(end)
-        print(pass_.__name__, change)
+        self.history.append((copy.deepcopy(self.module), pass_.__name__))
 
         return change
+
+    def undo(self):
+        self.history.pop()
+        self.module = copy.deepcopy(self.history[-1][0])
 
     def make_program(self, comments=False):
         return a2s(self.module, comments=comments).rstrip()
@@ -214,6 +224,27 @@ class Inliner:
     def fixpoint(self, f):
         while f():
             pass
+
+    def autoschedule(self):
+        while True:
+            if not self.inline():
+                break
+            self.fixpoint(self.deadcode)
+
+        while True:
+            any_pass = any([
+                self.expand_self(),
+                self.unread_vars(),
+                self.lifetimes(),
+                self.copy_propagation(),
+                self.simplify_varargs(),
+                self.expand_tuples()
+            ])
+            if not any_pass:
+                break
+
+        self.clean_imports()
+        self.remove_suffixes()
 
     def execute(self):
         return Tracer(self.make_program(), self.globls).trace()

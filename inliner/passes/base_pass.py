@@ -4,11 +4,13 @@ from ..tracer import Tracer
 
 class RemoveEmptyBlocks(ast.NodeTransformer):
     def generic_visit(self, node):
-        if hasattr(node, 'body') and isinstance(node.body, list) and \
-           len(node.body) == 0:
+        super().generic_visit(node)
+
+        if hasattr(node, 'body') and \
+           ((isinstance(node.body, list) and len(node.body) == 0) or \
+            node.body is None):
             return None
-        else:
-            return super().generic_visit(node)
+        return node
 
 
 class BasePass(ast.NodeTransformer):

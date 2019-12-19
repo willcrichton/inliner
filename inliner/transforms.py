@@ -8,39 +8,102 @@ import typing
 from .visitors import RemoveFunctoolsWraps, ReplaceYield, UsedGlobals, \
     ReplaceSuper, ReplaceSelf, Rename, FindAssignments, ReplaceReturn, \
     collect_imports
-from .common import a2s, parse_stmt, parse_expr, make_name, obj_to_ast, SEP
+from .common import a2s, parse_stmt, parse_expr, make_name, obj_to_ast, SEP, COMMENT_MARKER
 
 
 class ContextualTransforms:
+    """
+    Primary code for performing inlining.
+
+    Inlining code often needs to make reference to either the Inliner object
+    or to the global variables generated during the last trace, so we wrap all
+    the functions in a ContextualTransforms class that provides access to this
+    state.
+    """
     def __init__(self, inliner, globls):
         self.inliner = inliner
         self.globls = globls
 
     def inline_constructor(self, call_obj, call_expr, ret_var):
+        """
+        Inlines a class constructor.
+
+        Construction has two parts: creating the object with __new__, and
+        initializing it with __init__. We insert a __new__ call and then
+        inline the __init__ function.
+
+        Example:
+          class Foo:
+            def __init__(self):
+              self.x = 1
+          f = Foo()
+
+          >> becomes >>
+
+          f = Foo.__new__(Foo)
+          self = f
+          self.x = 1
+        """
         cls = call_obj.__name__
+
+        # Add an import for the class
         imprt = ast.ImportFrom(module=inspect.getmodule(call_obj).__name__,
                                level=0,
                                names=[ast.alias(name=cls, asname=None)])
+
+        # Create a raw object using __new__
         make_obj = ast.Assign(targets=[make_name(ret_var)],
                               value=parse_expr(f'{cls}.__new__({cls})'))
+
+        # Add the object as an explicit argument to the __init__ function
         call_expr.args.insert(0, make_name(ret_var))
-        return [imprt, make_obj] + self.inline_function(
-            call_obj.__init__, call_expr, ret_var, cls=call_obj)
+
+        # Inline the __init__ function
+        init_inline = self.inline_function(call_obj.__init__,
+                                           call_expr,
+                                           ret_var,
+                                           cls=call_obj)
+
+        return [imprt, make_obj] + init_inline
 
     def expand_method(self, call_obj, call_expr, ret_var):
-        obj = call_expr.func.value
+        """
+        Replace bound methods with unbound functions.
+
+        Example:
+          f = Foo()
+          assert f.bar(0) == 1
+
+          >> becomes >>
+
+          f = Foo()
+          assert Foo.bar(f, 0) == 1
+        """
+
+        # HACK: assume all methods are called syntactically as obj.method()
+        # as opposed to x = obj.method; x()
+        assert isinstance(call_expr.func, ast.Attribute)
+
+        # Get the object bound to the method
         bound_obj = call_obj.__self__
+
+        # If the method is a classmethod, the method is bound to the class
         if inspect.isclass(bound_obj):
-            cls = bound_obj
-            call_expr.func = ast.Attribute(value=ast.Attribute(
-                value=make_name(cls.__name__), attr=call_expr.func.attr),
-                                           attr='__func__')
+            # The unbound function underlying a classmethod can be accessed
+            # through Foo.x.__func__
+            clsmethod = ast.Attribute(value=make_name(bound_obj.__name__),
+                                      attr=call_expr.func.attr)
+            call_expr.func = ast.Attribute(value=clsmethod, attr='__func__')
         else:
+            # Rewrite foo.x to Foo.x
             cls = bound_obj.__class__
             call_expr.func = ast.Attribute(value=make_name(cls.__name__),
                                            attr=call_expr.func.attr)
+
+        # Add the object as explicit self parameter
         call_expr.args.insert(0, obj)
 
+        # Generate any imports needed
         file_imports = collect_imports(call_obj)
         return self.generate_imports(cls.__name__,
                                      cls,
@@ -48,14 +111,53 @@ class ContextualTransforms:
                                      file_imports=file_imports)
 
     def expand_callable(self, call_expr):
+        """
+        Expands uses of __call__.
+
+        Example:
+          f = Foo()
+          assert f() == 1
+
+          >> becomes >>
+
+          f = Foo()
+          assert Foo.__call__(f) == 1
+        """
         call_expr.func = ast.Attribute(value=call_expr.func, attr='__call__')
 
     def inline_generator_function(self, call_obj, call_expr, ret_var):
+        """
+        Inlines generator functions (those using yield).
+
+        There is no easy way to proxy generator semantics/control flow
+        without generators, unlike early returns. The simple strategy is to
+        eagerly materialize the generator into a list. However, this is both
+        inefficient and does not always preserve semantics, e.g. see
+        requests.ipynb.
+
+        Example:
+          def foo():
+            for i in range(10):
+              yield i
+          for i in foo():
+             print(i)
+
+          >> becomes >>
+          l = []
+          for i in range(10):
+            l.append(i)
+          for i in l:
+            print(i)
+        """
         f_ast = parse_stmt(textwrap.dedent(inspect.getsource(call_obj)))
 
+        # Initialize the list
         new_stmts = [parse_stmt(f'{ret_var} = []')]
+
+        # Replace all yield statements by appending to the list
         ReplaceYield(ret_var).visit(f_ast)
 
+        # Then inline the function as normal
         new_stmts.extend(
             self.inline_function(call_obj, call_expr, ret_var, f_ast=f_ast))
         return new_stmts
@@ -67,7 +169,7 @@ class ContextualTransforms:
                         cls=None,
                         f_ast=None,
                         debug=False):
-        new_stmts = [ast.Expr(ast.Str("__comment: " + a2s(call_expr).strip()))]
+        new_stmts = [ast.Expr(ast.Str(COMMENT_MARKER + a2s(call_expr).strip()))]
         is_special_method = hasattr(call_obj, '__objclass__')
 
         if f_ast is None:

@@ -5,35 +5,49 @@ define([
 ], function ($, Jupyter) {
   "use strict";
 
-  var window = $('<div id="api-inliner"></div>');
+  var widget = $('<div id="api-inliner"></div>');
+
+  let format_trace = (reply) => {
+    var trace = reply.content.traceback.join('\n');
+    // https://stackoverflow.com/questions/25245716/remove-all-ansi-colors-styles-from-strings/29497680
+    var trace_no_color = trace.replace(
+      /[\u001b\u009b][[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><]/g, '');
+    return trace_no_color;
+  };
 
   let call = (pysrc, wait_output) => {
-    var spinner = window.find('.inline-spinner');
+    var spinner = widget.find('.inline-spinner');
     return new Promise((resolve, reject) => {
       spinner.show();
       Jupyter.notebook.kernel.execute(pysrc, {
         shell: {
           reply: (reply) => {
-            if (reply.content.status == 'error') {
-              var trace = reply.content.traceback.join('\n');
-              // https://stackoverflow.com/questions/25245716/remove-all-ansi-colors-styles-from-strings/29497680
-              var trace_no_color = trace.replace(
-                /[\u001b\u009b][[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><]/g, '');
+            if (!wait_output) {
               spinner.hide();
-              reject(trace_no_color);
-            } else {
-              if (!wait_output) {
-                spinner.hide();
+              if (reply.content.status == 'error') {
+                reject(format_trace(reply));
+              } else {
                 resolve(reply);
               }
             }
           },
         },
         iopub: {
-          output: (outp) => {
+          output: (reply) => {
             if (wait_output) {
               spinner.hide();
-              resolve(outp.content.text)
+              if (reply.msg_type == 'error') {
+                reject(format_trace(reply));
+              } else {
+                // HACK: if a call both prints to stdout and raises
+                // an exception, then the iopub.output callback receives
+                // two messages, and the stdout comes before the error.
+                // We can wait a little bit to see if we get the error first
+                // before resolving.
+                setTimeout(() => {
+                  resolve(reply.content.text)
+                }, 100);
+              }
             }
           }
         }
@@ -46,9 +60,11 @@ define([
 
   // spinner: https://www.w3schools.com/howto/howto_css_loader.asp
   var on_config_loaded = function() {
-    window.html(`
+    widget.html(`
 <h1 style="margin-top:0">API Inliner</h1>
 <div><button class="inline-btn inline-create">Create new</button></div>
+<div><button class="inline-btn inline-undo">Undo</button></div>
+<div><button class="inline-btn inline-autoschedule">Autoschedule</button></div>
 <div class="inline-spinner"></div>
 <style>
 .inline-btn { margin-top: 10px; }
@@ -80,9 +96,9 @@ define([
       action_name = action_name.charAt(0).toUpperCase() + action_name.slice(1);
 
       var html = `<div><button class="inline-btn inline-${action}">${action_name}</button>`;
-      window.append(html);
+      widget.append(html);
 
-      window.find(`.inline-${action}`).click(() => {
+      widget.find(`.inline-${action}`).click(() => {
         let cmd = `inliner.${action}`;
         if (action == 'deadcode') {
           cmd = `inliner.fixpoint(${cmd})`;
@@ -93,12 +109,12 @@ define([
         check_call(cmd)
           .then(() => update_cell())
           .catch((err) => {
-            console.log('err', err);
+            console.error(err);
           });
       });
     });
 
-    window.css({
+    widget.css({
       position: 'absolute',
       right: '20px',
       'font-size': '18px',
@@ -112,12 +128,13 @@ define([
     let update_cell = () => {
       var cell = Jupyter.notebook.get_selected_cell();
       var print = `print(inliner.make_program(comments=True))`;
-      check_output(print)
-        .then((src) => cell.set_text(src.trimEnd()))
-        .catch((err) => console.log('err', err));
+      return check_output(print)
+        .then((src) => cell.set_text(src.trimEnd()));
     };
 
-    window.find('.inline-create').click(() => {
+    window.inliner = {update_cell: update_cell};
+
+    widget.find('.inline-create').click(() => {
       var cell = Jupyter.notebook.get_selected_cell();
       var cell_contents = cell.get_text();
 
@@ -132,15 +149,70 @@ inliner = Inliner(${JSON.stringify(cell_contents)}, ['seaborn.categorical'])`;
           update_cell();
         })
         .catch((err) => {
-          console.log('err', err);
+          console.error(err);
         });
     });
 
-    $('body').append(window);
+    widget.find('.inline-undo').click(() => {
+      check_call('inliner.undo()').then(() => update_cell());
+    });
+
+    widget.find('.inline-autoschedule').click(() => {
+      async function run(pass) {
+        var change = await check_output(`print(inliner.${pass}())`)
+          .then((outp) => {
+            outp = outp.trim();
+            if (outp != 'True' && outp != 'False') {
+              throw new Error(`${pass}: ${outp}`);
+            }
+
+            return outp == 'True';
+          });
+        await update_cell();
+        return change;
+      }
+
+      async function test() {
+        while (true) {
+          var result = await run('inline');
+          if (!result) {
+            break;
+          }
+          await run('deadcode');
+        }
+
+        while (true) {
+          var passes = [
+            'expand_self', 'unread_vars', 'lifetimes', 'copy_propagation',
+            'simplify_varargs', 'expand_tuples'
+          ];
+
+          var any_pass = false;
+          for (var pass of passes) {
+            var change = await run(pass);
+            any_pass = any_pass || change;
+          }
+
+          if (!any_pass) {
+            break;
+          }
+        }
+
+        await run('clean_imports');
+        await run('remove_suffixes');
+      }
+
+      test()
+        .catch((err) => {
+          console.error(err);
+        });
+    });
+
+    $('body').append(widget);
   };
 
   var toggle_synthesizer = function() {
-    window.toggle();
+    widget.toggle();
   }
 
   var load_extension = function () {

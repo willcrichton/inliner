@@ -5,6 +5,9 @@ from ..common import a2s
 
 
 class SimplifyVarargsPass(BasePass):
+    """
+    Eliminates empty usage of **kwargs where kwargs = {}
+    """
     tracer_args = {}
 
     def visit_Call(self, call):

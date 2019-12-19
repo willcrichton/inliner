@@ -11,7 +11,7 @@ from astpretty import pprint as pprintast
 import copy
 
 SEP = '___'
-COMMENTS = False
+COMMENT_MARKER = '__comment: '
 
 
 def parse_stmt(s):
@@ -22,23 +22,12 @@ def parse_expr(s):
     return parse_stmt(s).value
 
 
-class RemoveSuffix(ast.NodeTransformer):
-    def visit_Name(self, name):
-        parts = name.id.split(SEP)
-        if len(parts) > 1:
-            name.id = parts[0]
-        return name
-
-
 class SourceGeneratorWithComments(SourceGenerator):
+    COMMENTS = False
+
     def visit_Str(self, node):
-        global COMMENTS
-        if COMMENTS and \
-           '__comment' in node.s:
-            s = node.s[10:]
-            call = parse_expr(textwrap.dedent(s))
-            RemoveSuffix().visit(call)
-            s = a2s(call, comments=COMMENTS)
+        if self.__class__.COMMENTS and node.s.startswith(COMMENT_MARKER):
+            s = node.s[len(COMMENT_MARKER):]
             indent = self.indent_with * self.indentation
             comment = '\n'.join([f'{indent}# {part}'
                                  for part in s.split('\n')][:-1])
@@ -48,8 +37,7 @@ class SourceGeneratorWithComments(SourceGenerator):
 
 
 def a2s(a, comments=False):
-    global COMMENTS
-    COMMENTS = comments
+    SourceGeneratorWithComments.COMMENTS = comments
     outp = astor.to_source(a,
                            source_generator_class=SourceGeneratorWithComments)
     return re.sub(r'^\s*#\s*\n', '\n', outp, flags=re.MULTILINE)
