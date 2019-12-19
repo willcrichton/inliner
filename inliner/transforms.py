@@ -80,6 +80,8 @@ class ContextualTransforms:
           assert Foo.bar(f, 0) == 1
         """
 
+        call_obj_ast = call_expr.func.value
+
         # HACK: assume all methods are called syntactically as obj.method()
         # as opposed to x = obj.method; x()
         assert isinstance(call_expr.func, ast.Attribute)
@@ -101,7 +103,7 @@ class ContextualTransforms:
                                            attr=call_expr.func.attr)
 
         # Add the object as explicit self parameter
-        call_expr.args.insert(0, obj)
+        call_expr.args.insert(0, call_obj_ast)
 
         # Generate any imports needed
         file_imports = collect_imports(call_obj)
@@ -170,17 +172,9 @@ class ContextualTransforms:
                         f_ast=None,
                         debug=False):
         new_stmts = [ast.Expr(ast.Str(COMMENT_MARKER + a2s(call_expr).strip()))]
-        is_special_method = hasattr(call_obj, '__objclass__')
 
         if f_ast is None:
-            if is_special_method:
-                # TODO: make this work for all slot wrappers
-                f_source = """
-                def _(*args):
-                    return list(*args)
-                """
-            else:
-                f_source = inspect.getsource(call_obj)
+            f_source = inspect.getsource(call_obj)
             f_source = textwrap.dedent(f_source)
 
             if debug:
@@ -365,7 +359,7 @@ class ContextualTransforms:
         # Inline function body
         new_stmts.extend(f_ast.body)
 
-        if not is_special_method and not self.inliner.is_source_obj(call_obj):
+        if not self.inliner.is_source_obj(call_obj):
             used_globals = UsedGlobals(call_obj.__globals__)
             used_globals.visit(f_ast)
             used = used_globals.used
