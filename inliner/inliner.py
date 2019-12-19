@@ -170,7 +170,7 @@ class Inliner:
         """
         Checks if runtime object was defined in the inliner source.
 
-        Requires that the executed code was run through tracer.compile_and_exec
+        Requires that the executed code was run through the tracer.
         """
         try:
             if os.path.basename(inspect.getfile(obj)).startswith(FILE_PREFIX):

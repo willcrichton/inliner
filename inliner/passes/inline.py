@@ -67,8 +67,8 @@ class FindCall(ast.NodeTransformer):
                 # foo.x is same as Foo.x.fget(foo), so we treat the property
                 # as a function call so we can pass it to the function inliner
                 self.call_obj = prop.fget
-                self.call_expr = parse_expr("{}_getter({})".format(
-                    attr.attr, a2s(attr.value)))
+                self.call_expr = parse_expr("{}.{}_getter({})".format(
+                    prop_obj.__class__.__name__, attr.attr, a2s(attr.value)))
                 self.ret_var = self.inliner.fresh('prop_{}'.format(attr.attr))
                 return make_name(self.ret_var)
 

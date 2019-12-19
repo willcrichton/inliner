@@ -164,70 +164,71 @@ class ContextualTransforms:
             self.inline_function(call_obj, call_expr, ret_var, f_ast=f_ast))
         return new_stmts
 
-    def inline_function(self,
-                        call_obj,
-                        call_expr,
-                        ret_var,
-                        cls=None,
-                        f_ast=None,
-                        debug=False):
-        new_stmts = [ast.Expr(ast.Str(COMMENT_MARKER + a2s(call_expr).strip()))]
+    def _expand_decorators(self, new_stmts, f_ast, call_expr, call_obj,
+                           ret_var):
+        """
+        Expand decorator calls to an inlined function.
 
-        if f_ast is None:
-            f_source = inspect.getsource(call_obj)
-            f_source = textwrap.dedent(f_source)
+        Example:
+          @foo
+          def bar(x):
+            return x + 1
+          assert bar(1) == 2
 
-            if debug:
-                print('Expanding {}'.format(a2s(call_expr)))
+          >> becomes >>
 
-            f_ast = parse_stmt(f_source)
+          def bar(x):
+            return x + 1
+          assert foo(bar(1)) == 2
+        """
+        decorators = f_ast.decorator_list
 
-        f_ast.name = self.inliner.fresh(f_ast.name)
+        used_globals = UsedGlobals(call_obj.__globals__)
+        used_globals.visit(f_ast)
+        used = used_globals.used
+        file_imports = collect_imports(call_obj)
+        for name, globl in used_globals.used.items():
+            imprt = self.generate_imports(name,
+                                          globl,
+                                          call_obj=call_obj,
+                                          file_imports=file_imports)
+            if imprt is not None:
+                new_stmts.insert(0, imprt)
+
+        f_ast.decorator_list = []
+        new_stmts.append(f_ast)
+
+        # TODO: what if decorator has arguments?
+        call_expr.func = ast.Call(func=decorators[0],
+                                  args=[make_name(f_ast.name)],
+                                  keywords=[])
+        new_stmts.append(
+            ast.Assign(targets=[make_name(ret_var)], value=call_expr))
+
+    def _replace_self_super(self, f_ast, cls, call_expr):
+        # If we don't know what the class is, e.g. in Foo.method(foo), then
+        # eval the LHS of the attribute, e.g. Foo here
+        if cls is None:
+            if not isinstance(call_expr.func, ast.Attribute):
+                raise Exception("Cannot get class for call_expr: " +
+                                a2s(call_expr))
+            cls = eval(a2s(call_expr.func.value), self.globls, self.globls)
+
+        # HACK: we're assuming super() always refers to the first base class,
+        # but it actually depends on the specific method being called and the MRO.
+        # THIS IS UNSOUND with multiple inheritance (and potentially even with
+        # basic subtype polymorphism?)
+        ReplaceSuper(cls.__bases__[0]).visit(f_ast)
+
+        # Replace references to `self.method()` with `Foo.method(self)`, same as
+        # expand_constructor()
+        ReplaceSelf(cls, self.globls).visit(f_ast)
+
+    def _bind_arguments(self, f_ast, call_expr, new_stmts):
         args_def = f_ast.args
 
-        decorators = f_ast.decorator_list
-        if len(decorators) > 0:
-            if isinstance(decorators[0], ast.Name) and \
-               (decorators[0].id == 'property' or decorators[0].id == 'classmethod'):
-                pass
-            else:
-                used_globals = UsedGlobals(call_obj.__globals__)
-                used_globals.visit(f_ast)
-                used = used_globals.used
-                file_imports = collect_imports(call_obj)
-                for name, globl in used_globals.used.items():
-                    imprt = self.generate_imports(name,
-                                                  globl,
-                                                  call_obj=call_obj,
-                                                  file_imports=file_imports)
-                    if imprt is not None:
-                        new_stmts.insert(0, imprt)
-
-                f_ast.decorator_list = []
-                new_stmts.append(f_ast)
-
-                call_expr.func = ast.Call(func=decorators[0],
-                                          args=[make_name(f_ast.name)],
-                                          keywords=[])
-                new_stmts.append(
-                    ast.Assign(targets=[make_name(ret_var)], value=call_expr))
-                return new_stmts
-
-        for stmt in f_ast.body:
-            RemoveFunctoolsWraps().visit(stmt)
-
-        if len(args_def.args) > 0 and args_def.args[0].arg == 'self' and \
-           (cls is not None or
-            isinstance(call_expr.func, ast.Attribute) and isinstance(call_expr.func.value, ast.Name)):
-
-            if cls is None:
-                cls = self.globls[call_expr.func.value.id]
-
-            ReplaceSuper(cls.__bases__[0]).visit(f_ast)
-
-        if cls is not None:
-            ReplaceSelf(cls, self.globls).visit(f_ast)
-
+        # Scope a variable name as unique to the function, and update any references
+        # to it in the function
         def unique_and_rename(name):
             unique_name = f'{name}{SEP}{f_ast.name}'
             renamer = Rename(name, unique_name)
@@ -237,6 +238,7 @@ class ContextualTransforms:
 
         args = call_expr.args[:]
 
+        # Rename all variables declared in the function that aren't arguments
         assgn_finder = FindAssignments()
         assgn_finder.visit(f_ast)
         arg_names = set([arg.arg for arg in args_def.args])
@@ -244,36 +246,46 @@ class ContextualTransforms:
             if name not in arg_names:
                 unique_and_rename(name)
 
+        # If function is called with f(*args)
         if len(call_expr.args) > 0 and \
            isinstance(call_expr.args[-1], ast.Starred):
             star_arg = call_expr.args.pop().value
-            num_star_args = len(eval(a2s(star_arg), self.globls, self.globls))
+
+            # Get the length of the star_arg runtime list
+            star_arg_obj = eval(a2s(star_arg), self.globls, self.globls)
+
+            # Generate an indexing expression for each element of the list
             call_star_args = [
                 ast.Subscript(value=star_arg, slice=ast.Index(value=ast.Num(i)))
-                for i in range(num_star_args)
+                for i in range(len(star_arg_obj))
             ]
         else:
             star_arg = None
 
-        # if call_expr has f(**kwargs)
+        # If function is called with f(**kwargs)
         star_kwarg = [arg for arg in call_expr.keywords if arg.arg is None]
         star_kwarg = star_kwarg[0].value if len(star_kwarg) > 0 else None
-
         if star_kwarg is not None:
-            star_kwarg_keys = eval(a2s(star_kwarg), self.globls,
-                                   self.globls).keys()
+            star_kwarg_dict = eval(a2s(star_kwarg), self.globls, self.globls)
             call_star_kwarg = {
                 key: ast.Subscript(value=star_kwarg,
                                    slice=ast.Index(value=ast.Str(key)))
-                for key in star_kwarg_keys
+                for key in star_kwarg_dict.keys()
             }
 
+        # Function's anonymous arguments, e.g. f(1, 2) becomes [1, 2]
         call_anon_args = call_expr.args[:]
+
+        # Function's keyword arguments, e.g. f(x=1, y=2) becomes {'x': 1, 'y': 2}
         call_kwargs = {
             arg.arg: arg.value
             for arg in call_expr.keywords if arg.arg is not None
         }
 
+        # Match up defaults with variable names.
+        #
+        # Python convention is that if function has N arguments and K < N defaults, then
+        # the defaults correspond to arguments N - K .. N.
         nodefault = len(args_def.args) - len(args_def.defaults)
         anon_defaults = {
             arg.arg: default
@@ -281,33 +293,46 @@ class ContextualTransforms:
                                     args_def.defaults)
         }
 
+        # All keyword-only arguments must have defaults.
+        #
+        # kwonlyargs occur if a function definition has args AFTER a *args, e.g.
+        # the var "y" in `def foo(x, *args, y=1)`
         kw_defaults = {
             arg.arg: default
             for arg, default in zip(args_def.kwonlyargs, args_def.kw_defaults)
         }
 
-        # Add argument bindings
+        # For each non-keyword-only argument, match it up with the corresponding
+        # syntax from the call expression
         for arg in args_def.args:
             k = arg.arg
 
-            # Get value corresponding to argument name
+            # First, match with anonymous arguments
             if len(call_anon_args) > 0:
                 v = call_anon_args.pop(0)
+
+            # Then use *args if it exists
             elif star_arg is not None and len(call_star_args) > 0:
                 v = call_star_args.pop(0)
+
+            # Then use keyword arguments
             elif k in call_kwargs:
                 v = call_kwargs.pop(k)
+
+            # Then use **kwargs if it exists
             elif star_kwarg is not None and k in call_star_kwarg:
                 v = call_star_kwarg.pop(k)
+
+            # Otherwise use the default value
             else:
                 v = anon_defaults.pop(k)
 
-            # Rename to unique var name
+            # Add a binding from function argument to call argument
             uniq_k = unique_and_rename(k)
-
             stmt = ast.Assign(targets=[make_name(uniq_k)], value=v)
             new_stmts.append(stmt)
 
+        # Perform equivalent procedure as above, but for keyword-only arguments
         for arg in args_def.kwonlyargs:
             k = arg.arg
 
@@ -319,10 +344,11 @@ class ContextualTransforms:
                 v = kw_defaults.pop(k)
 
             uniq_k = unique_and_rename(k)
-
             stmt = ast.Assign(targets=[make_name(uniq_k)], value=v)
             new_stmts.append(stmt)
 
+        # If function definition uses *args, then assign it to the remaining anonymous
+        # arguments from the call_expr
         if args_def.vararg is not None:
             k = unique_and_rename(args_def.vararg.arg)
             v = call_anon_args[:]
@@ -331,6 +357,7 @@ class ContextualTransforms:
             new_stmts.append(
                 ast.Assign(targets=[make_name(k)], value=ast.List(elts=v)))
 
+        # Similarly for **kwargs in the function definition
         if args_def.kwarg is not None:
             k = unique_and_rename(args_def.kwarg.arg)
             items = call_kwargs.items()
@@ -342,44 +369,99 @@ class ContextualTransforms:
                            value=ast.Dict([ast.Str(s) for s in kwkeys],
                                           kwvalues)))
 
-        # Replace returns with assignment
+    def _get_nonlocal_vars(self, f_ast, call_obj):
+        used_globals = UsedGlobals(call_obj.__globals__)
+        used_globals.visit(f_ast)
+        used = used_globals.used
+
+        if call_obj.__closure__ is not None and len(call_obj.__closure__) > 0:
+            for var, cell in zip(call_obj.__code__.co_freevars,
+                                 call_obj.__closure__):
+                used[var] = cell.cell_contents
+
+        return used
+
+    def inline_function(self,
+                        call_obj,
+                        call_expr,
+                        ret_var,
+                        cls=None,
+                        f_ast=None,
+                        debug=False):
+        if debug:
+            print('Inlining {}'.format(a2s(call_expr)))
+
+        # Start by adding the call expression as a comment
+        new_stmts = [ast.Expr(ast.Str(COMMENT_MARKER + a2s(call_expr).strip()))]
+
+        # We should not be inlining "slot wrappers" like list()
+        assert not hasattr(call_obj, '__objclass__')
+
+        if f_ast is None:
+            # Get the source code for the function
+            f_source = inspect.getsource(call_obj)
+
+            # We have to "dedent" it if the source code is not at the top level
+            # (e.g. a class method)
+            f_source = textwrap.dedent(f_source)
+
+            # Then parse the function into an AST
+            f_ast = parse_stmt(f_source)
+
+        # Give the function a fresh name so it won't conflict with other calls to
+        # the same function
+        f_ast.name = self.inliner.fresh(f_ast.name)
+
+        # If function has decorators, deal with those first. Just inline decorator call
+        # and stop there.
+        decorators = f_ast.decorator_list
+        assert len(decorators) <= 1
+        if len(decorators) == 1 and \
+           not (isinstance(decorators[0], ast.Name) and
+                (decorators[0].id == 'property'
+                 or decorators[0].id == 'classmethod')):
+            self._expand_decorators(new_stmts, f_ast, call_expr, call_obj,
+                                    ret_var)
+            return new_stmts
+
+        # If we're inlining a decorator, we need to remove @functools.wraps calls
+        # to avoid messing up inspect.getsource
+        for stmt in f_ast.body:
+            RemoveFunctoolsWraps().visit(stmt)
+
+        # If the function is a method (which we proxy by first arg being named "self"),
+        # then we need to replace uses of special "self" and "super" keywords.
+        args_def = f_ast.args
+        if len(args_def.args) > 0 and args_def.args[0].arg == 'self':
+            self._replace_self_super(f_ast, cls, call_expr)
+
+        # Add bindings from arguments in the call expression to arguments in function def
+        self._bind_arguments(f_ast, call_expr, new_stmts)
+
+        # Add an explicit return None at the end to reify implicit return
         f_ast.body.append(parse_stmt("return None"))
+
+        # Iteratively replace all return statements with conditional assignments to
+        # the ret_var. See ReplaceReturn in visitors.py for how this works.
         while True:
             replacer = ReplaceReturn(ret_var)
             replacer.visit(f_ast)
             if not replacer.found_return:
                 break
 
-        try:
-            a2s(f_ast)
-        except Exception:
-            print(f_ast.name)
-            raise
-
         # Inline function body
         new_stmts.extend(f_ast.body)
 
+        # If we're inlining a function not defined in the top-level source, then
+        # add imports for all the nonlocal (global + closure) variables
         if not self.inliner.is_source_obj(call_obj):
-            used_globals = UsedGlobals(call_obj.__globals__)
-            used_globals.visit(f_ast)
-            used = used_globals.used
-
-            if call_obj.__closure__ is not None and len(
-                    call_obj.__closure__) > 0:
-                cell = call_obj.__closure__[0]
-                for var, cell in zip(call_obj.__code__.co_freevars,
-                                     call_obj.__closure__):
-                    used[var] = cell.cell_contents
-
-            imports = []
-
+            used = self._get_nonlocal_vars(f_ast, call_obj)
             file_imports = collect_imports(call_obj)
-
-            for name, globl in used_globals.used.items():
+            for name, value in used.items():
                 if name == 'self':  # HACK
                     continue
                 imprt = self.generate_imports(name,
-                                              globl,
+                                              value,
                                               call_obj=call_obj,
                                               file_imports=file_imports)
                 if imprt is not None:
@@ -388,14 +470,26 @@ class ContextualTransforms:
         return new_stmts
 
     def generate_imports(self, name, globl, call_obj, file_imports):
+        """
+        Generate an import statement for a (name, runtime object) pair.
+
+
+        """
         if name in file_imports:
             return file_imports[name]
 
+        # If we're importing a module, then add an import directly
         if inspect.ismodule(globl):
+            # Add an alias if the imported name is different from the module name
             alias = name if globl.__name__ != name else None
             return ast.Import([ast.alias(name=globl.__name__, asname=alias)])
         else:
             mod = inspect.getmodule(globl)
+
+            # Runtime objects that are not functions or classes will not have a module
+            # associated with them, meaning we cannot get their source. This is common
+            # for global constants. We can either import the object, or try to
+            # reconstruct an AST from the runtime object.
             if mod is None or mod is typing:
                 try:
                     mod_value = obj_to_ast(globl)
@@ -407,13 +501,19 @@ class ContextualTransforms:
                         names=[ast.alias(name=name, asname=None)],
                         level=0)
 
+            # Can't import builtins
             elif mod == __builtins__:
                 return None
+
+            # If the value is a class or function, then import it directly
             elif inspect.isclass(globl) or inspect.isfunction(globl):
                 return ast.ImportFrom(module=mod.__name__,
                                       names=[ast.alias(name=name, asname=None)],
                                       level=0)
+
+            # Unsure when this case is triggerd?
             elif call_obj is not None:
+                assert False, "TODO: document this case"
                 return ast.ImportFrom(
                     module=inspect.getmodule(call_obj).__name__,
                     names=[ast.alias(name=name, asname=None)],

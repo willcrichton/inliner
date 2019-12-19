@@ -40,7 +40,7 @@ def a2s(a, comments=False):
     SourceGeneratorWithComments.COMMENTS = comments
     outp = astor.to_source(a,
                            source_generator_class=SourceGeneratorWithComments)
-    return re.sub(r'^\s*#\s*\n', '\n', outp, flags=re.MULTILINE)
+    return re.sub(r'^\s*#\s*\n', '\n', outp, flags=re.MULTILINE).rstrip()
 
 
 # https://stackoverflow.com/questions/3312989/elegant-way-to-test-python-asts-for-equality-not-reference-or-object-identity

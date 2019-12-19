@@ -54,3 +54,10 @@ def dec_test(f):
 @dec_test
 def function_decorator(x):
     return x + 1
+
+
+GLOBL = 1
+
+
+def globl():
+    return GLOBL

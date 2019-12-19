@@ -112,6 +112,14 @@ def test_closure():
     harness(closure, basic_schedule)
 
 
+def test_global():
+    def globl():
+        import api
+        assert api.globl() == 1
+
+    harness(globl, basic_schedule)
+
+
 def test_seaborn_boxplot():
     def make_plot():
         import seaborn as sns

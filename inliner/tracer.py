@@ -8,14 +8,20 @@ FILE_PREFIX = 'inline'
 
 
 def compile_and_exec(code, globls):
+    """
+
+    """
     with NamedTemporaryFile(delete=False, prefix=FILE_PREFIX) as f:
         f.write(code.encode('utf-8'))
         f.flush()
-        exec(compile(code, f.name, 'exec'), globls)
+        exec(compile(code, f.name, 'exec'), globls, globls)
 
 
 # https://blog.hakril.net/articles/2-understanding-python-execution-tracer.html
 class FrameAnalyzer:
+    """
+    Disassembles a runtime stack frame.
+    """
     def __init__(self, frame):
         self.frame = frame
         self.code = frame.f_code
@@ -38,6 +44,9 @@ class ValueUnknown:
 
 
 class Tracer:
+    """
+    Executes a program and collects information about loads, stores, and executed lines.
+    """
     def __init__(self,
                  prog,
                  globls=None,
@@ -108,6 +117,13 @@ class Tracer:
         return self._trace_fn
 
     def trace(self):
+        """
+        Execute the provided program.
+
+        In order for introspection tools like inspect.getsource to work on top-level
+        objects, we have to actually write the code to a file and compile the code with
+        the filename.
+        """
         with NamedTemporaryFile(delete=False, prefix=FILE_PREFIX) as f:
             f.write(self.prog.encode('utf-8'))
             f.flush()
@@ -116,6 +132,7 @@ class Tracer:
             should_trace = self.trace_lines or self.trace_opcodes
             try:
                 prog_bytecode = compile(self.prog, f.name, 'exec')
+
                 if should_trace:
                     sys.settrace(self._trace_fn)
 
