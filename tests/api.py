@@ -61,3 +61,15 @@ GLOBL = 1
 
 def globl():
     return GLOBL
+
+
+class Context:
+    def __init__(self, n):
+        self.n = n
+
+    def __enter__(self):
+        self.n += 1
+        return self
+
+    def __exit__(self, *args):
+        self.n += 1

@@ -1,8 +1,24 @@
 import ast
 import inspect
 
-from ..common import make_name, SEP
+from ..common import make_name, SEP, compare_ast, parse_expr
 from .base_pass import BasePass
+
+
+class FindObjNew(ast.NodeVisitor):
+    def __init__(self, globls):
+        self.globls = globls
+        self.objs = set()
+
+    def visit_Assign(self, stmt):
+        if isinstance(stmt.targets[0], ast.Name):
+            name = stmt.targets[0].id
+            assert name in self.globls
+            obj = self.globls[name]
+
+            cls = obj.__class__.__name__
+            if compare_ast(stmt.value, parse_expr(f'{cls}.__new__({cls})')):
+                self.objs.add(id(obj))
 
 
 class ExpandSelfPass(BasePass):
@@ -32,11 +48,10 @@ class ExpandSelfPass(BasePass):
 
     tracer_args = {}
 
-    def __init__(self, inliner):
-        super().__init__(inliner)
-        self._find_objs_to_inline()
+    def visit_Module(self, mod):
+        finder = FindObjNew(self.globls)
+        finder.visit(mod)
 
-    def _find_objs_to_inline(self):
         self.objs_to_inline = {}
         # We find all the objects that need to be inlined by going through
         # the globals of the last trace
@@ -50,7 +65,8 @@ class ExpandSelfPass(BasePass):
                not inspect.isclass(obj) and \
                not inspect.ismodule(obj):
 
-                if id(obj) not in self.objs_to_inline:
+                if id(obj) not in self.objs_to_inline and id(
+                        obj) in finder.objs:
 
                     # We heuristically devise a name for the object
                     if hasattr(obj, '__name__'):
@@ -61,6 +77,8 @@ class ExpandSelfPass(BasePass):
                         name = 'var'
                     self.objs_to_inline[id(obj)] = self.inliner.fresh(
                         name.lower())
+
+        return super().visit_Module(mod)
 
     def visit_Attribute(self, attr):
         if isinstance(attr.value, ast.Name):
@@ -83,8 +101,10 @@ class ExpandSelfPass(BasePass):
 
             if id(obj) in self.objs_to_inline:
                 new_name = self.objs_to_inline[id(obj)]
-                self.change = True
-                if isinstance(stmt.value, ast.Call):
+
+                cls = obj.__class__.__name__
+                if compare_ast(stmt.value, parse_expr(f'{cls}.__new__({cls})')):
+                    self.change = True
                     return [
                         ast.Assign(targets=[make_name(f'{new_name}{SEP}{k}')],
                                    value=ast.NameConstant(None))

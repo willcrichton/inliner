@@ -484,12 +484,10 @@ class ContextualTransforms:
             alias = name if globl.__name__ != name else None
             return ast.Import([ast.alias(name=globl.__name__, asname=alias)])
         else:
+            # Get module where global is defined
             mod = inspect.getmodule(globl)
 
-            # Runtime objects that are not functions or classes will not have a module
-            # associated with them, meaning we cannot get their source. This is common
-            # for global constants. We can either import the object, or try to
-            # reconstruct an AST from the runtime object.
+            # TODO: When is mod None?
             if mod is None or mod is typing:
                 try:
                     mod_value = obj_to_ast(globl)
@@ -505,15 +503,15 @@ class ContextualTransforms:
             elif mod == __builtins__:
                 return None
 
-            # If the value is a class or function, then import it directly
+            # If the value is a class or function, then import it from the defining
+            # module
             elif inspect.isclass(globl) or inspect.isfunction(globl):
                 return ast.ImportFrom(module=mod.__name__,
                                       names=[ast.alias(name=name, asname=None)],
                                       level=0)
 
-            # Unsure when this case is triggerd?
+            # Otherwise import it from the module using the global
             elif call_obj is not None:
-                assert False, "TODO: document this case"
                 return ast.ImportFrom(
                     module=inspect.getmodule(call_obj).__name__,
                     names=[ast.alias(name=name, asname=None)],
@@ -553,12 +551,17 @@ class ContextualTransforms:
                    orelse=[assgn(ifexp.orelse)])
         ]
 
-    def expand_with(withstmt):
+    def expand_with(self, withstmt):
         assert len(withstmt.items) == 1
-        assert withstmt.items[0].optional_vars is None
+        item = withstmt.items[0]
 
-        enter = parse_expr("None.__enter__()")
-        exit_ = parse_expr("None.__exit__()")
-        enter.func.value = withstmt.items[0].context_expr
-        exit_.func.value = withstmt.items[0].context_expr
-        return [enter] + withstmt.body + [exit_]
+        if item.optional_vars is not None:
+            assert isinstance(item.optional_vars, ast.Name)
+            name = item.optional_vars.id
+        else:
+            name = self.inliner.fresh('withctx')
+
+        init = ast.Assign(targets=[make_name(name)], value=item.context_expr)
+        enter = parse_stmt(f'{name}.__enter__()')
+        exit_ = parse_stmt(f'{name}.__exit__()')
+        return [init, enter] + withstmt.body + [exit_]

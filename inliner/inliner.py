@@ -146,7 +146,7 @@ class Inliner:
         if isinstance(target, str):
             return ModuleTarget(target)
         elif inspect.isfunction(target):
-            return FunctionTarget(Target)
+            return FunctionTarget(target)
         elif inspect.isclass(target):
             return ClassTarget(target)
         elif isinstance(target, InlineTarget):
@@ -243,9 +243,9 @@ class Inliner:
 
         while True:
             any_pass = any([
-                self.expand_self(),
                 self.unread_vars(),
                 self.lifetimes(),
+                self.expand_self(),
                 self.copy_propagation(),
                 self.simplify_varargs(),
                 self.expand_tuples()

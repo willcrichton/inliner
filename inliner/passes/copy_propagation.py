@@ -77,6 +77,11 @@ class CopyPropagationPass(BasePass):
         self.assignments = []
         self.baseline_execs = 1
 
+    def visit_With(self, stmt):
+        # For now, don't do any propagation on assignments within with blocks
+        # to avoid moving statements outside the block
+        return stmt
+
     def visit_For(self, loop):
         # Track the current number of loop iterations as we descend the AST
         loop_iters = self.tracer.execed_lines[loop.lineno] - 1

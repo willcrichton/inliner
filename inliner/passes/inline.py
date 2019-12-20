@@ -103,6 +103,18 @@ class FindIfExp(ast.NodeTransformer):
         return make_name(self.ret_var)
 
 
+class FindAssignment(ast.NodeVisitor):
+    def __init__(self, var):
+        self.assgn = None
+        self.var = var
+
+    def visit_Assign(self, stmt):
+        if len(stmt.targets) == 1 and \
+           isinstance(stmt.targets[0], ast.Name) and \
+           stmt.targets[0].id == self.var:
+            self.assgn = stmt.value
+
+
 class InlinePass(BasePass):
     """
     Primary inlining functionality. Looks for inline-able syntax objects
@@ -157,9 +169,45 @@ class InlinePass(BasePass):
         else:
             return [stmt]
 
+    def _visit_import(self, imprt):
+        if len(imprt.names) == 1:
+            alias = imprt.names[0]
+            source_name = alias.name
+            imported_name = alias.asname or alias.name
+            try:
+                obj = eval(imported_name, self.globls, self.globls)
+            except Exception:
+                return imprt
+
+
+            if self.inliner.should_inline(obj) and \
+               not inspect.ismodule(obj) and \
+               not inspect.isclass(obj):
+
+                if isinstance(imprt, ast.ImportFrom):
+                    assert imprt.level == 0
+                    exec(f'import {imprt.module}', self.globls, self.globls)
+                    mod_obj = eval(imprt.module, self.globls, self.globls)
+                else:
+                    assert False, "TODO"
+
+                mod_ast = ast.parse(open(inspect.getsourcefile(mod_obj)).read())
+                finder = FindAssignment(source_name)
+                finder.visit(mod_ast)
+
+                # TODO: generate for finder.assgn
+                if finder.assgn is not None:
+                    return ast.Assign(targets=[make_name(imported_name)],
+                                      value=finder.assgn)
+
+        return imprt
+
     def generic_visit(self, node):
         if isinstance(node, (ast.Assert, ast.Assign, ast.Expr)):
             return self._inline(node)
+
+        if isinstance(node, (ast.Import, ast.ImportFrom)):
+            return self._visit_import(node)
 
         return super().generic_visit(node)
 

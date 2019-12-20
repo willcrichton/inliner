@@ -120,6 +120,16 @@ def test_global():
     harness(globl, basic_schedule)
 
 
+def test_with():
+    def with_():
+        import api
+        with api.Context(0) as c:
+            c.n += 1
+        assert c.n == 3
+
+    harness(with_, basic_schedule)
+
+
 def test_seaborn_boxplot():
     def make_plot():
         import seaborn as sns
