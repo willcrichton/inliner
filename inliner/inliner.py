@@ -101,7 +101,7 @@ class ClassTarget(InlineTarget):
 
 
 class Inliner:
-    def __init__(self, source, inline_targets, globls=None):
+    def __init__(self, source, targets, globls=None):
         if not isinstance(source, str):
             if globls is None and hasattr(source, '__globals__'):
                 globls = {**source.__globals__, **get_function_locals(source)}
@@ -118,9 +118,9 @@ class Inliner:
         self.globls = globls if globls is not None else {}
 
         self.generated_vars = defaultdict(int)
-        self.inline_targets = [
-            self.make_inline_target(target) for target in inline_targets
-        ]
+        self.targets = []
+        for target in targets:
+            self.add_target(target)
 
         self.history = [(copy.deepcopy(self.module), None)]
 
@@ -142,7 +142,7 @@ class Inliner:
 
         self.profiling_data = defaultdict(list)
 
-    def make_inline_target(self, target):
+    def _make_target(self, target):
         if isinstance(target, str):
             return ModuleTarget(target)
         elif inspect.isfunction(target):
@@ -154,6 +154,10 @@ class Inliner:
         else:
             raise Exception(
                 "Can't make inline target from object: {}".format(target))
+
+    def add_target(self, target):
+        target = self._make_target(target)
+        self.targets.append(target)
 
     def fresh(self, prefix='var'):
         """
@@ -194,7 +198,7 @@ class Inliner:
         if module is None:
             return False
 
-        for target in self.inline_targets:
+        for target in self.targets:
             if target.should_inline(obj):
                 return True
 
@@ -224,6 +228,12 @@ class Inliner:
     def fixpoint(self, f):
         while f():
             pass
+
+    def modules(self):
+        tracer = self.execute()
+        collector = CollectModules(tracer.globls)
+        collector.visit(self.module)
+        return collector.modules
 
     def autoschedule(self):
         while True:

@@ -234,3 +234,24 @@ class RemoveFunctoolsWraps(ast.NodeTransformer):
                     dec.func, parse_expr("functools.wraps")):
                 fdef.decorator_list = []
         return fdef
+
+
+class CollectModules(ast.NodeVisitor):
+    def __init__(self, globls):
+        self.globls = globls
+        self.modules = []
+
+    def generic_visit(self, node):
+        if isinstance(node, (ast.Name, ast.Attribute)):
+            try:
+                obj = eval(a2s(node), self.globls, self.globls)
+            except Exception:
+                obj = None
+
+            if obj is not None:
+                mod = inspect.getmodule(obj)
+                if mod is not None and mod not in self.modules:
+                    self.modules.append(mod)
+                return
+
+        super().generic_visit(node)

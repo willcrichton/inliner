@@ -29,8 +29,7 @@ class SourceGeneratorWithComments(SourceGenerator):
         if self.__class__.COMMENTS and node.s.startswith(COMMENT_MARKER):
             s = node.s[len(COMMENT_MARKER):]
             indent = self.indent_with * self.indentation
-            comment = '\n'.join([f'{indent}# {part}'
-                                 for part in s.split('\n')][:-1])
+            comment = '\n'.join([f'{indent}# {part}' for part in s.split('\n')])
             self.write('#\n' + comment)
         else:
             super().visit_Str(node)
@@ -116,8 +115,10 @@ def robust_eq(obj1, obj2):
     elif isinstance(obj1, tuple) or isinstance(obj1, list):
         return len(obj1) == len(obj2) and all(
             map(lambda t: robust_eq(*t), zip(obj1, obj2)))
-    else:
+    elif isinstance(obj1, (int, float, str)):
         return obj1 == obj2
+    else:
+        return False
 
 
 def make_name(s):

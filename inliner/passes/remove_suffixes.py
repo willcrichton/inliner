@@ -38,7 +38,10 @@ class RemoveSuffixesPass(BasePass):
            expr.value.s.startswith(COMMENT_MARKER):
             comment = expr.value.s[len(COMMENT_MARKER):]
             call = parse_expr(textwrap.dedent(comment))
+            name_map = self.name_map.copy()
+            self.name_map = {}
             self.visit(call)
+            self.name_map = name_map
             expr.value.s = COMMENT_MARKER + a2s(call)
             return expr
 
