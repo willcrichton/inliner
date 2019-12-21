@@ -1,4 +1,3 @@
-import $ from 'jquery';
 import Jupyter from 'base/js/namespace';
 import dialog from 'base/js/dialog';
 import React from 'react';
@@ -63,14 +62,14 @@ let Targets = observer(() => {
   let state = React.useContext(notebook_context).current_state;
   return <div>
     <div className='inline-targets'>
-      <ul>
-        {state.targets.map((name) => <li key={name}>{name}</li>)}
-      </ul>
+      {state.targets.length > 0
+                            ? state.targets.map((name) => <div key={name}>- {name}</div>)
+                            : <span className='inline-targets-missing'>No inline targets added</span>}
     </div>
-    <button className="inline-refresh-targets"
-            onClick={state.refresh_target_suggestions.bind(state)}>
+    <h3>Suggestions <button className="inline-refresh-targets"
+                            onClick={state.refresh_target_suggestions.bind(state)}>
       <i className="fa fa-refresh"></i>
-    </button>
+    </button></h3>
     <div className='inline-target-suggestions'>
       {state.target_suggestions.map((name) => {
         let on_click = () => {
@@ -143,9 +142,14 @@ class Inliner extends React.Component {
       }, 'toggle-inliner', 'inliner')
     ]);
 
+    let update_current_cell = () => {
+      let cell = Jupyter.notebook.get_selected_cell();
+      this._state.current_cell = cell.cell_id;
+    }
+
     // https://github.com/jupyter/notebook/blob/76a323e677b7080a1e9a88437d6b5cea6cc0403b/notebook/static/notebook/js/notebook.js#L332
-    Jupyter.notebook.events.on('select.Cell', (_, data) => {
-      this._state.current_cell = data.cell.cell_id;
+    ['select.Cell', 'set_dirty.Notebook'].forEach((event) => {
+      Jupyter.notebook.events.on(event, () => update_current_cell());
     });
   }
 
