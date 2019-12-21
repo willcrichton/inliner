@@ -56,4 +56,15 @@
             transform: rotate(360deg);
         }
     }
+
+    .inline-diff-panel {
+        $width: 1140px;
+        position: fixed;
+        bottom: 0;
+        width: $width;
+        left: calc(50% - #{$width}/2);
+        height: 600px;
+        background: white;
+        border: 1px solid #777;
+    }
 }

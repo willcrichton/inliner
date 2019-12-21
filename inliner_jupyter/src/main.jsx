@@ -1,16 +1,26 @@
 import Jupyter from 'base/js/namespace';
 import dialog from 'base/js/dialog';
-import React from 'react';
+import React, {
+  useState
+} from 'react';
 import ReactDOM from 'react-dom';
 import {
   observer
 } from 'mobx-react';
 
+import 'brace';
+import 'brace/mode/python';
+import 'brace/theme/monokai';
+import AceDiff from 'ace-diff';
+
+
 import {
   InlineState,
   NotebookState
 } from './state';
+
 import '../css/main.scss';
+import 'ace-diff/dist/ace-diff.min.css'
 
 const DEV_MODE = true;
 
@@ -117,9 +127,80 @@ let Spinner = observer(() => {
 });
 
 @observer
+class DiffPanel extends React.Component {
+  componentDidMount() {
+    this._set_diff();
+  }
+
+  componentDidUpdate() {
+    this._set_diff();
+  }
+
+  _set_diff() {
+    let state = this.props.state;
+    if (state) {
+      let hist_len = state.program_history.length;
+      if (hist_len >= 2) {
+        let before = state.program_history[hist_len - 2];
+        let after = state.program_history[hist_len - 1];
+
+        if (this.diff) {
+          this.diff.destroy();
+        }
+
+        this.diff = new AceDiff({
+          element: this._el,
+          mode: 'ace/mode/python',
+          left: {
+            content: before,
+            copyLinkEnabled: false,
+            editable: false
+          },
+          right: {
+            content: after,
+            copyLinkEnabled: false,
+            editable: false
+          }
+        });
+      }
+    }
+  }
+
+  componentWillUnmount() {
+    if (this.diff) {
+      this.diff.destroy();
+    }
+  }
+
+  render() {
+    let state = this.props.state;
+    if (state) {
+      // HACK: have to observe program_history here for the _set_diff callback
+      // to register with mobx
+      state.program_history.length;
+    }
+
+    return <div className='inline-diff-panel' ref={(el) => {this._el = el}}>
+    </div>;
+  }
+}
+
+
+let DiffButton = observer(() => {
+  const [show, setShow] = useState(false);
+  let state = React.useContext(notebook_context).current_state;
+  return <span>
+    <button onClick={() => setShow(!show)}>
+      <i className="fa fa-info"></i>
+    </button>
+    {show ? <DiffPanel state={state} /> : null}
+  </span>;
+});
+
+@observer
 class Inliner extends React.Component {
   state = {
-    show: DEV_MODE
+    show: DEV_MODE,
   }
 
   constructor(props) {
@@ -163,6 +244,7 @@ class Inliner extends React.Component {
         <h1>Inliner</h1>
         <CreateNew />
         <Undo />
+        <DiffButton />
         {this._state.current_state
         ? <div>
           <hr />
@@ -184,6 +266,8 @@ class Inliner extends React.Component {
 }
 
 export async function load_ipython_extension() {
+  console.warn('RUNNING!');
+
   await Jupyter.notebook.config.loaded;
 
   let container = document.createElement('div');

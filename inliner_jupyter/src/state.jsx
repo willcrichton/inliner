@@ -64,6 +64,7 @@ export class InlineState {
   @observable cell
   @observable targets = []
   @observable target_suggestions = []
+  @observable program_history = []
 
   constructor(cell, notebook_state) {
     this.cell = cell;
@@ -83,6 +84,7 @@ export class InlineState {
   async update_cell() {
     let src = await this.bridge.make_program();
     this.cell.set_text(src);
+    this.program_history.push(src);
   }
 
   async refresh_target_suggestions() {
@@ -95,7 +97,9 @@ export class InlineState {
 
   async undo() {
     await this.bridge.undo();
-    return this.update_cell();
+    await this.update_cell();
+    this.program_history.pop();
+    this.program_history.pop();
   }
 
   async run_pass(pass) {

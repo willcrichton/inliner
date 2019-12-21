@@ -28,6 +28,8 @@
     "webpack-cli": "^3.3.10"
   },
   "dependencies": {
+    "ace-diff": "^2.3.0",
+    "brace": "^0.11.1",
     "mobx": "^5.15.1",
     "mobx-react": "^6.1.4",
     "react": "^16.12.0",
