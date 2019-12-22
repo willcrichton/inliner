@@ -1,5 +1,4 @@
 import Jupyter from 'base/js/namespace';
-import dialog from 'base/js/dialog';
 import React, {
   useState
 } from 'react';
@@ -23,19 +22,6 @@ import '../css/main.scss';
 import 'ace-diff/dist/ace-diff.min.css'
 
 const DEV_MODE = true;
-
-async function show_error(err) {
-  let last_pass = await check_output(`print(inliner.history[-1][1])`);
-  dialog.modal({
-    title: 'Inliner error',
-    body: $(`<div>Last pass: ${last_pass}<br />
-    <pre>${err}</pre>
-    </div>`),
-    buttons: {
-      'Done': {}
-    }
-  });
-}
 
 const notebook_context = React.createContext(null);
 
