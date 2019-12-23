@@ -9,6 +9,7 @@ import typing
 import math
 from astpretty import pprint as pprintast
 import copy
+import inspect
 
 SEP = '___'
 COMMENT_MARKER = '__comment: '
@@ -115,8 +116,12 @@ def robust_eq(obj1, obj2):
     elif isinstance(obj1, tuple) or isinstance(obj1, list):
         return len(obj1) == len(obj2) and all(
             map(lambda t: robust_eq(*t), zip(obj1, obj2)))
-    elif isinstance(obj1, (int, float, str)):
+    elif isinstance(obj1, (int, float, str)) or \
+         inspect.isfunction(obj1) or \
+         inspect.isclass(obj1) or \
+         obj1 is None:
         return obj1 == obj2
+
     else:
         return False
 

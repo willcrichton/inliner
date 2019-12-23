@@ -60,7 +60,7 @@ class Tracer:
         self.execed_lines = defaultdict(int)
         self.trace_opcodes = trace_opcodes
         self.trace_lines = trace_lines
-        self.globls = globls.copy() or {}
+        self.globls = (globls or {}).copy()
         self._last_store = None
         self.debug = debug
 
@@ -68,7 +68,7 @@ class Tracer:
         # Lookup value in relevant store
         if name in frame.f_locals:
             value = frame.f_locals[name]
-        elif name in frame.f_locals:
+        elif name in frame.f_globals:
             value = frame.f_globals[name]
         else:
             value = ValueUnknown()

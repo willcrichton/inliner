@@ -154,8 +154,10 @@ class InlinePass(BasePass):
     def visit_For(self, stmt):
         self.generic_visit(stmt)
 
-        mod = ast.Module([stmt.iter])
+        mod = ast.Module([ast.Expr(stmt.iter)])
         self.visit(mod)
+        stmt.iter = mod.body[-1].value
+
         return mod.body[:-1] + [stmt]
 
     def visit_With(self, stmt):
@@ -178,7 +180,6 @@ class InlinePass(BasePass):
                 obj = eval(imported_name, self.globls, self.globls)
             except Exception:
                 return imprt
-
 
             if self.inliner.should_inline(obj) and \
                not inspect.ismodule(obj) and \
@@ -212,7 +213,6 @@ class InlinePass(BasePass):
         return super().generic_visit(node)
 
     def _inline(self, stmt):
-
         ifexp_finder = FindIfExp(self.inliner)
         ifexp_finder.visit(stmt)
         if ifexp_finder.ifexp is not None:
