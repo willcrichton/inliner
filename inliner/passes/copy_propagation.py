@@ -9,19 +9,23 @@ MAX_TREESIZE = 10  # TODO: good value for this?
 class ShouldCopyPropagate(ast.NodeVisitor):
     def __init__(self):
         self.size = 0
-        self.has_call = False
+        self.constant = True
 
-    def should_propagate(self, name, generated_vars):
-        return (name.split('_')[0] in generated_vars) or \
-            (self.size <= MAX_TREESIZE and not self.has_call)
+    def should_propagate(self, name, toplevel_vars):
+        return name not in toplevel_vars and \
+            self.constant and \
+            self.size <= MAX_TREESIZE
 
     def generic_visit(self, node):
         self.size += 1
-        super().generic_visit(node)
 
-    def visit_Call(self, node):
-        self.has_call = True
-        self.generic_visit(node)
+        constant_whitelist = (ast.Num, ast.Str, ast.Name, ast.NameConstant,
+                              ast.Load, ast.List, ast.Bytes, ast.Tuple, ast.Set,
+                              ast.Dict, ast.Attribute)
+        if not isinstance(node, constant_whitelist):
+            self.constant = False
+
+        super().generic_visit(node)
 
 
 class CopyPropagationPass(BasePass):
@@ -122,7 +126,7 @@ class CopyPropagationPass(BasePass):
 
             if self.tracer.set_count[k] == self.baseline_execs and \
                can_propagate and \
-               should_prop.should_propagate(k, self.inliner.generated_vars):
+               should_prop.should_propagate(k, self.inliner.toplevel_vars):
                 self.assignments.append((k, stmt.value))
                 return None
 

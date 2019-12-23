@@ -69,7 +69,7 @@ class FindCall(ast.NodeTransformer):
                 self.call_obj = prop.fget
                 self.call_expr = parse_expr("{}.{}_getter({})".format(
                     prop_obj.__class__.__name__, attr.attr, a2s(attr.value)))
-                self.ret_var = self.inliner.fresh('prop_{}'.format(attr.attr))
+                self.ret_var = self.inliner.fresh(attr.attr)
                 return make_name(self.ret_var)
 
         self.generic_visit(attr)
@@ -96,10 +96,22 @@ class FindIfExp(ast.NodeTransformer):
         self.inliner = inliner
         self.ifexp = None
         self.ret_var = None
+        self.assign_name = None
+
+    def visit_Assign(self, stmt):
+        if len(stmt.targets) == 1 and \
+           isinstance(stmt.targets[0], ast.Name):
+            self.assign_name = stmt.targets[0].id
+            self.generic_visit(stmt)
+            self.assign_name = None
+        else:
+            self.generic_visit(stmt)
+        return stmt
 
     def visit_IfExp(self, ifexp):
         self.ifexp = ifexp
-        self.ret_var = self.inliner.fresh('ifexp')
+        name = self.assign_name + '_ifexp' if self.assign_name is not None else 'ifexp'
+        self.ret_var = self.inliner.fresh(name)
         return make_name(self.ret_var)
 
 

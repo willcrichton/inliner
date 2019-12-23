@@ -6,6 +6,7 @@ from .expand_self import ExpandSelfPass
 from .expand_tuples import ExpandTuplesPass
 from .inline import InlinePass
 from .lifetimes import LifetimesPass
+from .partial_eval import PartialEvalPass
 from .remove_suffixes import RemoveSuffixesPass
 from .simplify_varargs import SimplifyVarargsPass
 from .unread_vars import UnreadVarsPass
@@ -19,6 +20,7 @@ PASSES = [
     ExpandTuplesPass,
     InlinePass,
     LifetimesPass,
+    PartialEvalPass,
     RemoveSuffixesPass,
     SimplifyVarargsPass,
     UnreadVarsPass

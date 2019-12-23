@@ -124,6 +124,10 @@ class Inliner:
 
         self.history = [(copy.deepcopy(self.module), None)]
 
+        finder = FindAssignments()
+        finder.visit(self.module)
+        self.toplevel_vars = finder.names
+
         def make_pass_name(name):
             # Split "TheFooPass" into ["The", "Foo", "Pass"]
             parts = re.findall('.[^A-Z]*', name)

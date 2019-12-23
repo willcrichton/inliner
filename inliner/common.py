@@ -85,8 +85,6 @@ def obj_to_ast(obj):
         # issue was in pandas, where importing pandas._typing.Axis would
         # resolve module to typing, attempt to do "from typing import Axis"
         return ast.NameConstant(None)
-    elif callable(obj):
-        return ast.NameConstant(None)
     elif isinstance(obj, float) and math.isinf(obj):
         return parse_expr('float("inf")')
     elif isinstance(obj, bytes):
