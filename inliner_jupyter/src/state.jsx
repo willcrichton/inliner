@@ -1,4 +1,3 @@
-import dialog from 'base/js/dialog';
 import {
   observable,
   computed,
@@ -9,20 +8,6 @@ import {
   check_call,
   check_output
 } from './utils';
-
-
-async function show_error(err) {
-  let last_pass = await check_output(`print(inliner.history[-1][1])`);
-  dialog.modal({
-    title: 'Inliner error',
-    body: $(`<div>Last pass: ${last_pass}<br />
-    <pre>${err}</pre>
-    </div>`),
-    buttons: {
-      'Done': {}
-    }
-  });
-}
 
 class PythonBridge {
   constructor(name) {
@@ -75,20 +60,23 @@ for target in json.loads('${JSON.stringify(targets)}'):
   }
 }
 
-let handle_error = (target, name, descriptor) => {
+let spinner = (target, name, descriptor) => {
   const original = descriptor.value;
   descriptor.value = async function(...args) {
-    this.notebook_state.show_spinner = true;
+    let toggled = !this.notebook_state.show_spinner;
+    if (toggled) {
+      this.notebook_state.show_spinner = true;
+    }
+
     try {
       let ret = await original.apply(this, args);
       return ret;
-    } catch (err) {
-      show_error(err);
     } finally {
-      this.notebook_state.show_spinner = false;
+      if (toggled) {
+        this.notebook_state.show_spinner = false;
+      }
     }
-  };
-  return descriptor;
+  }
 }
 
 export class InlineState {
@@ -103,7 +91,7 @@ export class InlineState {
     this.notebook_state = notebook_state
   }
 
-  @handle_error
+  @spinner
   async setup(contents) {
     await this.bridge.setup(contents);
     await this.update_cell();
@@ -113,14 +101,14 @@ export class InlineState {
     });
   }
 
-  @handle_error
+  @spinner
   async update_cell() {
     let src = await this.bridge.make_program();
     this.cell.set_text(src);
     this.program_history.push(src);
   }
 
-  @handle_error
+  @spinner
   async refresh_target_suggestions() {
     let suggestions = await this.bridge.target_suggestions();
     suggestions = suggestions.filter((name) =>
@@ -129,7 +117,7 @@ export class InlineState {
     this.target_suggestions.push(...suggestions);
   }
 
-  @handle_error
+  @spinner
   async undo() {
     await this.bridge.undo();
     await this.update_cell();
@@ -137,14 +125,14 @@ export class InlineState {
     this.program_history.pop();
   }
 
-  @handle_error
+  @spinner
   async run_pass(pass) {
     let ret = await this.bridge.run_pass(pass);
     await this.update_cell();
     return ret;
   }
 
-  @handle_error
+  @spinner
   async autoschedule() {
     while (true) {
       var result = await this.run_pass('inline');

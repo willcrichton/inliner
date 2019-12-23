@@ -1,4 +1,5 @@
 import Jupyter from 'base/js/namespace';
+import dialog from 'base/js/dialog';
 import React, {
   useState
 } from 'react';
@@ -6,13 +7,14 @@ import ReactDOM from 'react-dom';
 import {
   observer
 } from 'mobx-react';
-
 import 'brace';
 import 'brace/mode/python';
 import 'brace/theme/monokai';
 import AceDiff from 'ace-diff';
 
-
+import {
+  check_output
+} from './utils';
 import {
   InlineState,
   NotebookState
@@ -25,6 +27,29 @@ const DEV_MODE = true;
 
 const notebook_context = React.createContext(null);
 
+
+async function show_error(err) {
+  let last_pass = await check_output(`print(inliner.history[-1][1])`);
+  dialog.modal({
+    title: 'Inliner error',
+    body: $(`<div>Last pass: ${last_pass}<br />
+    <pre>${err}</pre>
+    </div>`),
+    buttons: {
+      'Done': {}
+    }
+  });
+}
+
+let handle_error = async (f) => {
+  try {
+    let ret = await f();
+    return ret;
+  } catch (err) {
+    show_error(err);
+  }
+}
+
 let CreateNew = () => {
   let notebook_state = React.useContext(notebook_context);
 
@@ -36,10 +61,10 @@ let CreateNew = () => {
     notebook_state.current_cell = new_cell.cell_id;
 
     let state = new InlineState(new_cell, notebook_state);
-    await state.setup(cell.get_text());
+    await handle_error(() => state.setup(cell.get_text()));
     notebook_state.add_state(state);
 
-    state.refresh_target_suggestions();
+    handle_error(() => state.refresh_target_suggestions());
   };
 
   return <button className="inline-btn inline-create" onClick={on_click}>
@@ -49,7 +74,8 @@ let CreateNew = () => {
 
 let Undo = observer(() => {
   let state = React.useContext(notebook_context).current_state;
-  return <button className="inline-btn inline-undo" onClick={() => state.undo()}>
+  return <button className="inline-btn inline-undo"
+                 onClick={() => handle_error(() => state.undo())}>
     <i className="fa fa-undo"></i>
   </button>;
 });
@@ -63,7 +89,7 @@ let Targets = observer(() => {
                             : <span className='inline-targets-missing'>No inline targets added</span>}
     </div>
     <h3>Suggestions <button className="inline-refresh-targets"
-                            onClick={state.refresh_target_suggestions.bind(state)}>
+                            onClick={() => handle_error(() => state.refresh_target_suggestions())}>
       <i className="fa fa-refresh"></i>
     </button></h3>
     <div className='inline-target-suggestions'>
@@ -88,7 +114,7 @@ let Passes = observer(() => {
   return <div className='inline-passes'>
     <div>
       <button className="inline-btn inline-autoschedule"
-              onClick={() => state.autoschedule()}>
+              onClick={() => handle_error(() => state.autoschedule())}>
         Autoschedule
       </button>
     </div>
@@ -96,11 +122,8 @@ let Passes = observer(() => {
       let pass_name = pass.replace('_', ' ');
       pass_name = pass_name.charAt(0).toUpperCase() + pass_name.slice(1);
 
-      let on_click = () => {
-        state.run_pass(pass);
-      };
-
-      return <div key={pass}><button className="inline-btn" onClick={on_click}>
+      return <div key={pass}><button className="inline-btn"
+                                     onClick={() => handle_error(() => state.run_pass(pass))}>
         {pass_name}
       </button></div>;
     })}
@@ -252,12 +275,12 @@ class Inliner extends React.Component {
 }
 
 export async function load_ipython_extension() {
-  console.warn('RUNNING!');
-
   await Jupyter.notebook.config.loaded;
 
   let container = document.createElement('div');
   document.body.appendChild(container);
 
   ReactDOM.render(<Inliner />, container);
+
+  console.log('[Inliner] Extension initialized');
 };

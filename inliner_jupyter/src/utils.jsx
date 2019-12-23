@@ -16,6 +16,7 @@ let call = (pysrc, wait_output) => {
         reply: (reply) => {
           if (!wait_output) {
             if (reply.content.status == 'error') {
+              console.error(reply);
               reject(format_trace(reply));
             } else {
               resolve(reply);
@@ -27,6 +28,7 @@ let call = (pysrc, wait_output) => {
         output: (reply) => {
           if (wait_output) {
             if (reply.msg_type == 'error') {
+              console.error(reply);
               reject(format_trace(reply));
             } else {
               // HACK: if a call both prints to stdout and raises
