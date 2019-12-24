@@ -143,3 +143,42 @@ def get_function_locals(f):
         }
 
     return {}
+
+
+class IsConstant(ast.NodeVisitor):
+    def __init__(self):
+        self.constant = True
+
+    def generic_visit(self, node):
+        if isinstance(node, ast.FunctionDef):
+            return
+
+        whitelist = (ast.Num, ast.Str, ast.Name, ast.NameConstant, ast.Load,
+                     ast.List, ast.Bytes, ast.Tuple, ast.Set, ast.Dict,
+                     ast.Attribute)
+
+        if not isinstance(node, whitelist):
+            self.constant = False
+
+        super().generic_visit(node)
+
+
+def is_constant(node):
+    visitor = IsConstant()
+    visitor.visit(node)
+    return visitor.constant
+
+
+class TreeSize(ast.NodeVisitor):
+    def __init__(self):
+        self.size = 0
+
+    def generic_visit(self, node):
+        self.size += 1
+        super().generic_visit(node)
+
+
+def tree_size(node):
+    visitor = TreeSize()
+    visitor.visit(node)
+    return visitor.size

@@ -1,31 +1,9 @@
 import ast
 from .base_pass import BasePass
-from ..common import robust_eq
+from ..common import robust_eq, is_constant, tree_size
 from ..visitors import Replace
 
 MAX_TREESIZE = 10  # TODO: good value for this?
-
-
-class ShouldCopyPropagate(ast.NodeVisitor):
-    def __init__(self):
-        self.size = 0
-        self.constant = True
-
-    def should_propagate(self, name, toplevel_vars):
-        return name not in toplevel_vars and \
-            self.constant and \
-            self.size <= MAX_TREESIZE
-
-    def generic_visit(self, node):
-        self.size += 1
-
-        constant_whitelist = (ast.Num, ast.Str, ast.Name, ast.NameConstant,
-                              ast.Load, ast.List, ast.Bytes, ast.Tuple, ast.Set,
-                              ast.Dict, ast.Attribute)
-        if not isinstance(node, constant_whitelist):
-            self.constant = False
-
-        super().generic_visit(node)
 
 
 class CopyPropagationPass(BasePass):
@@ -121,12 +99,12 @@ class CopyPropagationPass(BasePass):
                 len(self.tracer.reads[k]) == self.baseline_execs or \
                 isinstance(stmt.value, ast.Name)
 
-            should_prop = ShouldCopyPropagate()
-            should_prop.visit(stmt.value)
+            should_propagate = k not in self.inliner.toplevel_vars and \
+                tree_size(stmt.value) <= MAX_TREESIZE and \
+                is_constant(stmt.value)
 
             if self.tracer.set_count[k] == self.baseline_execs and \
-               can_propagate and \
-               should_prop.should_propagate(k, self.inliner.toplevel_vars):
+               can_propagate and should_propagate:
                 self.assignments.append((k, stmt.value))
                 return None
 

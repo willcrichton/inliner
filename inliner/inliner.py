@@ -145,6 +145,7 @@ class Inliner:
             setattr(self, name, fn)
 
         self.profiling_data = defaultdict(list)
+        self._tracer_cache = None
 
     def _make_target(self, target):
         if isinstance(target, str):
@@ -208,17 +209,23 @@ class Inliner:
 
         return False
 
-    def run_pass(self, pass_):
+    def run_pass(self, Pass):
         start = now()
         try:
-            change = pass_(self).run()
+            pass_ = Pass(self)
+            change = pass_.run()
         except Exception:
             self.module = copy.deepcopy(self.history[-1][0])
             raise
         end = now() - start
 
-        self.profiling_data[pass_.__name__].append(end)
-        self.history.append((copy.deepcopy(self.module), pass_.__name__))
+        if Pass.tracer_args is not None and not change:
+            self._tracer_cache = (Pass.tracer_args, pass_.tracer)
+        else:
+            self._tracer_cache = None
+
+        self.profiling_data[Pass.__name__].append(end)
+        self.history.append((copy.deepcopy(self.module), Pass.__name__))
 
         return change
 
@@ -230,8 +237,11 @@ class Inliner:
         return a2s(self.module, comments=comments).rstrip()
 
     def fixpoint(self, f):
+        change = False
         while f():
+            change = True
             pass
+        return change
 
     def modules(self):
         tracer = self.execute()

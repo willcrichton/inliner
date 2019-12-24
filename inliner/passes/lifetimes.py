@@ -3,6 +3,7 @@ from collections import defaultdict
 
 from .base_pass import BasePass
 from ..visitors import CollectLineNumbers
+from ..common import is_constant
 
 
 class LifetimesPass(BasePass):
@@ -58,7 +59,8 @@ class LifetimesPass(BasePass):
             collect_lineno = CollectLineNumbers()
             collect_lineno.visit(stmt)
 
-            if len(set(unused_lines) & collect_lineno.linenos) > 0:
+            if len(set(unused_lines) & collect_lineno.linenos) > 0 and \
+               is_constant(stmt.value):
                 self.change = True
                 return None
 

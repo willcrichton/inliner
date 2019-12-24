@@ -40,8 +40,9 @@ print(json.dumps([mod.__name__ for mod in ${this.name}.modules()]))`;
     return check_call(`${this.name}.undo()`);
   }
 
-  async run_pass(pass) {
-    let outp = await check_output(`print(${this.name}.${pass}())`);
+  async run_pass(pass, fixpoint = false) {
+    let call = fixpoint ? `fixpoint(inliner.${pass})` : `${pass}()`;
+    let outp = await check_output(`print(${this.name}.${call})`);
     outp = outp.trim();
     if (outp != 'True' && outp != 'False') {
       throw `${pass}: ${outp}`;
@@ -126,40 +127,38 @@ export class InlineState {
   }
 
   @spinner
-  async run_pass(pass) {
-    let ret = await this.bridge.run_pass(pass);
+  async run_pass(pass, fixpoint = false) {
+    let ret = await this.bridge.run_pass(pass, fixpoint);
     await this.update_cell();
     return ret;
   }
 
   @spinner
   async autoschedule() {
-    while (true) {
-      var result = await this.run_pass('inline');
-      if (!result) {
-        break;
+    let run_until = async (passes) => {
+      while (true) {
+        var any_pass = false;
+        for (var pass of passes) {
+          console.log(`Running ${pass}`);
+          var change = await this.run_pass(pass, pass == 'deadcode');
+          any_pass = any_pass || change;
+          console.log(`Finished ${pass}, change: ${change}`);
+        }
+
+        if (!any_pass) {
+          return;
+        }
       }
-      await this.run_pass('deadcode');
-    }
+    };
 
-    while (true) {
-      var passes = [
-        'unread_vars', 'lifetimes', 'expand_self', 'copy_propagation',
-        'simplify_varargs', 'expand_tuples'
-      ];
+    let passes = [
+      'inline', 'deadcode', 'copy_propagation', 'lifetimes', 'simplify_varargs', 'partial_eval', 'expand_tuples', 'clean_imports', 'array_index'
+    ];
 
-      var any_pass = false;
-      for (var pass of passes) {
-        var change = await this.run_pass(pass);
-        any_pass = any_pass || change;
-      }
+    await run_until(passes);
+    await this.run_pass('expand_self');
+    await run_until(passes);
 
-      if (!any_pass) {
-        break;
-      }
-    }
-
-    await this.run_pass('clean_imports');
     await this.run_pass('remove_suffixes');
   }
 }

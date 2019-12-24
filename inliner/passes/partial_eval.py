@@ -1,7 +1,7 @@
 import ast
 
 from .base_pass import BasePass
-from ..common import a2s, obj_to_ast
+from ..common import a2s, obj_to_ast, compare_ast
 
 
 class ShouldEval(ast.NodeVisitor):
