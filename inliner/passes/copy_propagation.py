@@ -1,6 +1,6 @@
 import ast
 from .base_pass import BasePass
-from ..common import robust_eq, is_constant, tree_size
+from ..common import robust_eq, is_effect_free, tree_size
 from ..visitors import Replace
 
 MAX_TREESIZE = 10  # TODO: good value for this?
@@ -95,13 +95,13 @@ class CopyPropagationPass(BasePass):
 
                 val_eq = False
 
-            can_propagate = val_eq or \
-                len(self.tracer.reads[k]) == self.baseline_execs or \
-                isinstance(stmt.value, ast.Name)
+            can_propagate = (val_eq or
+                len(self.tracer.reads[k]) == self.baseline_execs or
+                isinstance(stmt.value, ast.Name)) and \
+                is_effect_free(stmt.value)
 
             should_propagate = k not in self.inliner.toplevel_vars and \
-                tree_size(stmt.value) <= MAX_TREESIZE and \
-                is_constant(stmt.value)
+                tree_size(stmt.value) <= MAX_TREESIZE
 
             if self.tracer.set_count[k] == self.baseline_execs and \
                can_propagate and should_propagate:

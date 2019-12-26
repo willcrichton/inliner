@@ -145,28 +145,33 @@ def get_function_locals(f):
     return {}
 
 
-class IsConstant(ast.NodeVisitor):
+class IsEffectFree(ast.NodeVisitor):
     def __init__(self):
-        self.constant = True
+        self.effect_free = True
+        func_whitelist = ['str']
+        self.func_whitelist = [parse_expr(s) for s in func_whitelist]
+        self.ast_whitelist = (ast.Num, ast.Str, ast.Name, ast.NameConstant,
+                              ast.Load, ast.List, ast.Bytes, ast.Tuple, ast.Set,
+                              ast.Dict, ast.Attribute)
 
     def generic_visit(self, node):
         if isinstance(node, ast.FunctionDef):
             return
 
-        whitelist = (ast.Num, ast.Str, ast.Name, ast.NameConstant, ast.Load,
-                     ast.List, ast.Bytes, ast.Tuple, ast.Set, ast.Dict,
-                     ast.Attribute)
-
-        if not isinstance(node, whitelist):
-            self.constant = False
+        if isinstance(node, ast.Call):
+            if not any([compare_ast(node, f) for f in self.func_whitelist]):
+                self.effect_free = False
+        else:
+            if not isinstance(node, self.ast_whitelist):
+                self.effect_free = False
 
         super().generic_visit(node)
 
 
-def is_constant(node):
-    visitor = IsConstant()
+def is_effect_free(node):
+    visitor = IsEffectFree()
     visitor.visit(node)
-    return visitor.constant
+    return visitor.effect_free
 
 
 class TreeSize(ast.NodeVisitor):

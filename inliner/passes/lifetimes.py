@@ -1,9 +1,10 @@
 import ast
 from collections import defaultdict
+import sys
 
 from .base_pass import BasePass
 from ..visitors import CollectLineNumbers
-from ..common import is_constant
+from ..common import is_effect_free
 
 
 class LifetimesPass(BasePass):
@@ -39,7 +40,7 @@ class LifetimesPass(BasePass):
                 next_possible_stores = [
                     line for _, line in stores[i + 1:] if line > store_line
                 ]
-                next_store_line = min(next_possible_stores, default=10000000)
+                next_store_line = min(next_possible_stores, default=sys.maxsize)
 
                 unused = True
                 for (_, read_line) in reads:
@@ -60,7 +61,7 @@ class LifetimesPass(BasePass):
             collect_lineno.visit(stmt)
 
             if len(set(unused_lines) & collect_lineno.linenos) > 0 and \
-               is_constant(stmt.value):
+               is_effect_free(stmt.value):
                 self.change = True
                 return None
 
