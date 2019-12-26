@@ -3,6 +3,7 @@ import textwrap
 
 from .base_pass import BasePass
 from ..common import SEP, parse_expr, COMMENT_MARKER, a2s
+from collections import defaultdict
 
 
 class RemoveSuffixesPass(BasePass):
@@ -39,8 +40,11 @@ class RemoveSuffixesPass(BasePass):
             comment = expr.value.s[len(COMMENT_MARKER):]
             call = parse_expr(textwrap.dedent(comment))
             name_map = self.name_map.copy()
+            generated_vars = self.inliner.generated_vars.copy()
             self.name_map = {}
+            self.inliner.generated_vars = defaultdict(int)
             self.visit(call)
+            self.inliner.generated_vars = generated_vars
             self.name_map = name_map
             expr.value.s = COMMENT_MARKER + a2s(call)
             return expr

@@ -50,6 +50,27 @@ class LifetimesPass(BasePass):
                 if unused:
                     self.unused_stores[k].append(store_line)
 
+    def visit_ImportFrom(self, stmt):
+        aliases = [
+            alias for alias in stmt.names
+            if len(self.tracer.reads[alias.name if alias.
+                                     asname is None else alias.asname]) > 0
+        ]
+
+        if len(aliases) != len(stmt.names):
+            self.change = True
+            return None
+
+        if len(aliases) > 0:
+            stmt.names = aliases
+            return stmt
+
+    def visit_FunctionDef(self, stmt):
+        if len(self.tracer.reads[stmt.name]) == 0:
+            self.change = True
+            return None
+        return stmt
+
     def visit_Assign(self, stmt):
         if len(stmt.targets) == 1 and \
            isinstance(stmt.targets[0], ast.Name):

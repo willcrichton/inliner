@@ -107,14 +107,17 @@ class SimplifyVarargsPass(BasePass):
 
     def visit_Call(self, call):
         if len(call.args) > 0 and isinstance(call.args[-1], ast.Starred):
-            star_arg = call.args.pop().value
+            star_arg = call.args[-1].value
 
             try:
                 star_obj = eval(a2s(star_arg), self.globls, self.globls)
             except Exception:
-                print('ERROR', a2s(call))
-                raise
+                # print('ERROR', a2s(call))
+                # TODO: log a warning?
+                # list comprehension issue: [f(*c) for c in whatever]
+                return call
 
+            call.args.pop()
             self.change = True
 
             for i in range(len(star_obj)):
