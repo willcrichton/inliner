@@ -394,9 +394,6 @@ class ContextualTransforms:
         # Start by adding the call expression as a comment
         new_stmts = [ast.Expr(ast.Str(COMMENT_MARKER + a2s(call_expr).strip()))]
 
-        # We should not be inlining "slot wrappers" like list()
-        assert not hasattr(call_obj, '__objclass__')
-
         if f_ast is None:
             # Get the source code for the function
             f_source = inspect.getsource(call_obj)

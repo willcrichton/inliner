@@ -199,6 +199,10 @@ class Inliner:
         if self.is_source_obj(obj):
             return True
 
+        # Don't inline builtins (they don't have source)
+        if inspect.isbuiltin(obj):
+            return False
+
         # Don't inline objects without a module
         if module is None:
             return False
