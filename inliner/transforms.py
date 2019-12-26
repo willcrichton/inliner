@@ -58,11 +58,14 @@ class ContextualTransforms:
         # Add the object as an explicit argument to the __init__ function
         call_expr.args.insert(0, make_name(ret_var))
 
-        # Inline the __init__ function
-        init_inline = self.inline_function(call_obj.__init__,
-                                           call_expr,
-                                           ret_var,
-                                           cls=call_obj)
+        if call_obj.__init__ is not object.__init__:
+            # Inline the __init__ function
+            init_inline = self.inline_function(call_obj.__init__,
+                                               call_expr,
+                                               ret_var,
+                                               cls=call_obj)
+        else:
+            init_inline = []
 
         return [imprt, make_obj] + init_inline
 
@@ -209,10 +212,10 @@ class ContextualTransforms:
         # If we don't know what the class is, e.g. in Foo.method(foo), then
         # eval the LHS of the attribute, e.g. Foo here
         if cls is None:
-            if not isinstance(call_expr.func, ast.Attribute):
-                raise Exception("Cannot get class for call_expr: " +
-                                a2s(call_expr))
-            cls = eval(a2s(call_expr.func.value), self.globls, self.globls)
+            if isinstance(call_expr.func, ast.Attribute):
+                cls = eval(a2s(call_expr.func.value), self.globls, self.globls)
+            else:
+                cls = eval(a2s(call_expr.func), self.globls, self.globls).__class__
 
         # HACK: we're assuming super() always refers to the first base class,
         # but it actually depends on the specific method being called and the MRO.
@@ -396,7 +399,11 @@ class ContextualTransforms:
 
         if f_ast is None:
             # Get the source code for the function
-            f_source = inspect.getsource(call_obj)
+            try:
+                f_source = inspect.getsource(call_obj)
+            except TypeError:
+                print('Failed to get source of {}'.format(a2s(call_expr)))
+                raise
 
             # We have to "dedent" it if the source code is not at the top level
             # (e.g. a class method)

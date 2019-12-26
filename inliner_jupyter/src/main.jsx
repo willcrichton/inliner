@@ -108,7 +108,7 @@ let Targets = observer(() => {
 let Passes = observer(() => {
   let state = React.useContext(notebook_context).current_state;
   const passes = [
-    'inline', 'deadcode', 'copy_propagation', 'clean_imports', 'expand_self', 'lifetimes', 'simplify_varargs', 'remove_suffixes', 'expand_tuples', 'partial_eval'
+    'inline', 'deadcode', 'copy_propagation', 'clean_imports', 'expand_self', 'lifetimes', 'simplify_varargs', 'remove_suffixes', 'expand_tuples', 'partial_eval', 'array_index'
   ];
 
   return <div className='inline-passes'>

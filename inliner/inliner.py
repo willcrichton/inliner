@@ -115,7 +115,7 @@ class Inliner:
             body = mod.body
         self.module = ast.Module(body=body)
 
-        self.globls = globls if globls is not None else {}
+        self.globls = globls.copy() if globls is not None else {}
 
         self.generated_vars = defaultdict(int)
         self.targets = []

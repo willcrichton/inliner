@@ -4,7 +4,7 @@
   "description": "",
   "main": "dist/extension.js",
   "scripts": {
-    "build": "webpack -d",
+    "build": "webpack -p",
     "watch": "webpack -d -w",
     "test": "echo \"Error: no test specified\" && exit 1"
   },

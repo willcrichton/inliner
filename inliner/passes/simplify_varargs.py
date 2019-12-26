@@ -106,6 +106,20 @@ class SimplifyVarargsPass(BasePass):
         return sub
 
     def visit_Call(self, call):
+        if len(call.args) > 0 and isinstance(call.args[-1], ast.Starred):
+            star_arg = call.args.pop().value
+
+            try:
+                star_obj = eval(a2s(star_arg), self.globls, self.globls)
+            except Exception:
+                print('ERROR', a2s(call))
+                raise
+
+            self.change = True
+
+            for i in range(len(star_obj)):
+                call.args.append(ast.Subscript(value=star_arg, slice=ast.Index(ast.Num(i))))
+
         kwarg = [(i, kw.value) for i, kw in enumerate(call.keywords)
                  if kw.arg is None]
 

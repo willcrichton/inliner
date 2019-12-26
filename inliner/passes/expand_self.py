@@ -13,12 +13,15 @@ class FindObjNew(ast.NodeVisitor):
     def visit_Assign(self, stmt):
         if isinstance(stmt.targets[0], ast.Name):
             name = stmt.targets[0].id
-            assert name in self.globls
+            assert name in self.globls, f'{name} not in globals'
             obj = self.globls[name]
 
             cls = obj.__class__.__name__
             if compare_ast(stmt.value, parse_expr(f'{cls}.__new__({cls})')):
                 self.objs.add(id(obj))
+
+    def visit_FunctionDef(self, fdef):
+        pass
 
 
 class ExpandSelfPass(BasePass):
@@ -88,7 +91,7 @@ class ExpandSelfPass(BasePass):
                 if id(obj) in self.objs_to_inline:
                     new_name = self.objs_to_inline[id(obj)]
                     self.change = True
-                    return make_name(f'{new_name}{SEP}{attr.attr}')
+                    return make_name(f'{attr.attr}{SEP}{new_name}')
 
         self.generic_visit(attr)
         return attr
