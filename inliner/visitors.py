@@ -239,19 +239,22 @@ class RemoveFunctoolsWraps(ast.NodeTransformer):
 class CollectModules(ast.NodeVisitor):
     def __init__(self, globls):
         self.globls = globls
-        self.modules = []
+        self.modules = {}
 
     def generic_visit(self, node):
         if isinstance(node, (ast.Name, ast.Attribute)):
             try:
-                obj = eval(a2s(node), self.globls, self.globls)
+                src = a2s(node)
+                obj = eval(src, self.globls, self.globls)
             except Exception:
                 obj = None
 
             if obj is not None:
                 mod = inspect.getmodule(obj)
-                if mod is not None and mod not in self.modules:
-                    self.modules.append(mod)
+                if mod is not None:
+                    name = mod.__name__
+                    if name not in self.modules:
+                        self.modules[name] = src
                 return
 
         super().generic_visit(node)

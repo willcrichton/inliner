@@ -148,8 +148,11 @@ def get_function_locals(f):
 class IsEffectFree(ast.NodeVisitor):
     def __init__(self):
         self.effect_free = True
-        func_whitelist = ['str']
+
+        # HACK: how can we actually detect purity?
+        func_whitelist = ['str', 'utils.to_utf8', 'LooseVersion']
         self.func_whitelist = [parse_expr(s) for s in func_whitelist]
+
         self.ast_whitelist = (ast.Num, ast.Str, ast.Name, ast.NameConstant,
                               ast.Load, ast.List, ast.Bytes, ast.Tuple, ast.Set,
                               ast.Dict, ast.Attribute)
@@ -159,7 +162,7 @@ class IsEffectFree(ast.NodeVisitor):
             return
 
         if isinstance(node, ast.Call):
-            if not any([compare_ast(node, f) for f in self.func_whitelist]):
+            if not any([compare_ast(node.func, f) for f in self.func_whitelist]):
                 self.effect_free = False
         else:
             if not isinstance(node, self.ast_whitelist):
