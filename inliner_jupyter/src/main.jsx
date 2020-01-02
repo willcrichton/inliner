@@ -1,16 +1,13 @@
 import Jupyter from 'base/js/namespace';
 import dialog from 'base/js/dialog';
-import React, {
-  useState
-} from 'react';
+import React from 'react';
 import ReactDOM from 'react-dom';
-import {
-  observer
-} from 'mobx-react';
+import * as mobx_react from 'mobx-react';
 import 'brace';
 import 'brace/mode/python';
 import 'brace/theme/monokai';
 import AceDiff from 'ace-diff';
+import Select from 'react-select';
 
 import {
   check_output
@@ -24,12 +21,11 @@ import '../css/main.scss';
 import 'ace-diff/dist/ace-diff.min.css'
 
 const DEV_MODE = true;
-
 const notebook_context = React.createContext(null);
 
 
-async function show_error(err) {
-  let last_pass = await check_output(`print(inliner.history[-1][1])`);
+async function show_error(state, err) {
+  let last_pass = await state.last_pass();
   dialog.modal({
     title: 'Inliner error',
     body: $(`<div>Last pass: ${last_pass}<br />
@@ -41,12 +37,12 @@ async function show_error(err) {
   });
 }
 
-let handle_error = async (f) => {
+let handle_error = async (state, f) => {
   try {
     let ret = await f();
     return ret;
   } catch (err) {
-    show_error(err);
+    show_error(state, err);
   }
 }
 
@@ -61,10 +57,10 @@ let CreateNew = () => {
     notebook_state.current_cell = new_cell.cell_id;
 
     let state = new InlineState(new_cell, notebook_state);
-    await handle_error(() => state.setup(cell.get_text()));
+    await handle_error(state, () => state.setup(cell.get_text()));
     notebook_state.add_state(state);
 
-    handle_error(() => state.refresh_target_suggestions());
+    handle_error(state, () => state.refresh_target_suggestions());
   };
 
   return <button className="inline-btn inline-create" onClick={on_click}>
@@ -72,40 +68,69 @@ let CreateNew = () => {
   </button>;
 };
 
-let Undo = observer(() => {
+let Undo = mobx_react.observer(() => {
   let state = React.useContext(notebook_context).current_state;
   return <button className="inline-btn inline-undo"
-                 onClick={() => handle_error(() => state.undo())}>
+                 onClick={() => handle_error(state, () => state.undo())}>
     <i className="fa fa-undo"></i>
   </button>;
 });
 
-let Targets = observer(() => {
+let Targets = mobx_react.observer(() => {
   let state = React.useContext(notebook_context).current_state;
+
+  /*
+   *   {state.target_suggestions.map((name) => {
+   *     let on_click = () => {
+   *       state.targets.push(name);
+   *       state.target_suggestions.splice(
+   *         state.target_suggestions.indexOf(name), 1);
+   *     };
+   *     return <div key={name}>
+   *       <button onClick={on_click}>+</button>
+   *       <code>{name}</code>
+   *     </div>;
+   *   })}
+   *  */
+
+  let suggestions =
+    Array.from(state.target_suggestions.entries())
+         .map(([mod, src]) => {
+           return {
+             label: `${mod} (${src})`,
+             value: mod
+           }
+         });
+
   return <div>
     <div className='inline-targets'>
       {state.targets.length > 0
                             ? state.targets.map((name) => <div key={name}>- {name}</div>)
                             : <span className='inline-targets-missing'>No inline targets added</span>}
     </div>
-    <h3>Suggestions <button className="inline-refresh-targets"
-                            onClick={() => handle_error(() => state.refresh_target_suggestions())}>
-      <i className="fa fa-refresh"></i>
-    </button></h3>
+    <h3>
+      Suggestions
+      <button className="inline-refresh-targets"
+              onClick={() => handle_error(state, () => state.refresh_target_suggestions())}>
+        <i className="fa fa-refresh"></i>
+      </button>
+    </h3>
     <div className='inline-target-suggestions'>
-      {state.target_suggestions.map((name) => {
-        let on_click = () => {
+      <Select
+        options={suggestions}
+        value=''
+        styles={{menu: base => ({...base, fontFamily: '"Source Sans Pro", monospace'})}}
+        placeholder='Suggestions...'
+        onChange={(selected) => {
+          let name = selected.value;
           state.targets.push(name);
-          state.target_suggestions.splice(
-            state.target_suggestions.indexOf(name), 1);
-        };
-        return <button key={name} onClick={on_click}>{name}</button>;
-      })}
+          state.target_suggestions.delete(name);
+        }} />
     </div>
   </div>;
 });
 
-let Passes = observer(() => {
+let Passes = mobx_react.observer(() => {
   let state = React.useContext(notebook_context).current_state;
   const passes = [
     'inline', 'deadcode', 'copy_propagation', 'clean_imports', 'expand_self', 'lifetimes', 'simplify_varargs', 'remove_suffixes', 'expand_tuples', 'partial_eval', 'array_index'
@@ -114,7 +139,7 @@ let Passes = observer(() => {
   return <div className='inline-passes'>
     <div>
       <button className="inline-btn inline-autoschedule"
-              onClick={() => handle_error(() => state.autoschedule())}>
+              onClick={() => handle_error(state, () => state.autoschedule())}>
         Autoschedule
       </button>
     </div>
@@ -123,19 +148,19 @@ let Passes = observer(() => {
       pass_name = pass_name.charAt(0).toUpperCase() + pass_name.slice(1);
 
       return <div key={pass}><button className="inline-btn"
-                                     onClick={() => handle_error(() => state.run_pass(pass))}>
+                                     onClick={() => handle_error(state, () => state.run_pass(pass))}>
         {pass_name}
       </button></div>;
     })}
   </div>;
 });
 
-let Spinner = observer(() => {
+let Spinner = mobx_react.observer(() => {
   let show_spinner = React.useContext(notebook_context).show_spinner;
   return show_spinner ? <div className='inline-spinner'></div> : null;
 });
 
-@observer
+@mobx_react.observer
 class DiffPanel extends React.Component {
   componentDidMount() {
     this._set_diff();
@@ -195,8 +220,8 @@ class DiffPanel extends React.Component {
 }
 
 
-let DiffButton = observer(() => {
-  const [show, setShow] = useState(false);
+let DiffButton = mobx_react.observer(() => {
+  const [show, setShow] = React.useState(false);
   let state = React.useContext(notebook_context).current_state;
   return <span>
     <button onClick={() => setShow(!show)}>
@@ -206,7 +231,7 @@ let DiffButton = observer(() => {
   </span>;
 });
 
-@observer
+@mobx_react.observer
 class Inliner extends React.Component {
   state = {
     show: DEV_MODE,

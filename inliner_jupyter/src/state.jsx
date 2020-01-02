@@ -1,3 +1,5 @@
+import _ from 'lodash';
+
 import {
   observable,
   computed,
@@ -31,7 +33,7 @@ ${this.name} = Inliner(${JSON.stringify(contents)}, [], globls=globals())`;
   async target_suggestions() {
     let refresh = `
 import json
-print(json.dumps([mod.__name__ for mod in ${this.name}.modules()]))`;
+print(json.dumps(${this.name}.modules()))`;
     let outp = await check_output(refresh);
     return JSON.parse(outp);
   }
@@ -59,6 +61,10 @@ for target in json.loads('${JSON.stringify(targets)}'):
 
     return check_call(save);
   }
+
+  async last_pass() {
+    return check_output(`print(${this.name}.history[-1][1])`);
+  }
 }
 
 let spinner = (target, name, descriptor) => {
@@ -83,7 +89,7 @@ let spinner = (target, name, descriptor) => {
 export class InlineState {
   @observable cell
   @observable targets = []
-  @observable target_suggestions = []
+  @observable target_suggestions = new Map();
   @observable program_history = []
 
   constructor(cell, notebook_state) {
@@ -112,10 +118,9 @@ export class InlineState {
   @spinner
   async refresh_target_suggestions() {
     let suggestions = await this.bridge.target_suggestions();
-    suggestions = suggestions.filter((name) =>
-      this.targets.indexOf(name) == -1);
+    suggestions = _.pickBy(suggestions, (v, k) => this.targets.indexOf(k) == -1);
     this.target_suggestions.clear();
-    this.target_suggestions.push(...suggestions);
+    this.target_suggestions.merge(suggestions);
   }
 
   @spinner
@@ -132,6 +137,8 @@ export class InlineState {
     await this.update_cell();
     return ret;
   }
+
+  async last_pass() { return this.bridge.last_pass(); }
 
   @spinner
   async autoschedule() {

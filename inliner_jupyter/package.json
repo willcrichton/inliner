@@ -30,9 +30,11 @@
   "dependencies": {
     "ace-diff": "^2.3.0",
     "brace": "^0.11.1",
+    "lodash": "^4.17.15",
     "mobx": "^5.15.1",
     "mobx-react": "^6.1.4",
     "react": "^16.12.0",
-    "react-dom": "^16.12.0"
+    "react-dom": "^16.12.0",
+    "react-select": "^3.0.8"
   }
 }

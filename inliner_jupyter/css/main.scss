@@ -9,13 +9,14 @@
     padding: 10px;
     border: 1px solid #777;
 
+    ul {
+        list-style-position: inside;
+        padding-left: 0;
+    }
+
     .inline-targets {
         font-size: 12px;
         margin-bottom: 5px;
-        ul {
-            list-style-position: inside;
-            padding-left: 0;
-        }
 
         .inline-targets-missing {
             font-size: 14px;
