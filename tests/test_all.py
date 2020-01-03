@@ -24,6 +24,7 @@ def basic_schedule(inliner):
             break
 
     inliner.clean_imports()
+    inliner.remove_suffixes()
 
 
 def harness(fn, schedule, apis=['api']):
@@ -32,7 +33,7 @@ def harness(fn, schedule, apis=['api']):
 
     # Then execute with inlining
     try:
-        inliner = Inliner(fn, apis)
+        inliner = Inliner(fn, apis, unwrap_function=True)
         schedule(inliner)
         prog = inliner.make_program(comments=True)
         print(prog)
@@ -73,6 +74,8 @@ def test_class_property():
         from api import ClassProperty
         c = ClassProperty()
         assert c.bar == 1
+        c.bar = 2
+        assert c.bar == 2
 
     harness(class_property, basic_schedule)
 

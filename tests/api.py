@@ -42,6 +42,10 @@ class ClassProperty:
     def bar(self):
         return self.foo
 
+    @bar.setter
+    def bar(self, foo):
+        self.foo = foo
+
 
 def dec_test(f):
     @functools.wraps(f)

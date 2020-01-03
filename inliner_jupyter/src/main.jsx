@@ -10,7 +10,9 @@ import {
   InlineState,
   NotebookState
 } from './state';
-import {get_env} from './env';
+import {
+  get_env
+} from './env';
 
 import '../css/main.scss';
 import 'ace-diff/dist/ace-diff.min.css'
@@ -18,12 +20,16 @@ import 'ace-diff/dist/ace-diff.min.css'
 export const notebook_context = React.createContext(null);
 
 
-let handle_error = async (state, f) => {
+let handle_error = async (operation, state, f) => {
   try {
     let ret = await f();
     return ret;
-  } catch (err) {
-    window.show_error(state, err);
+  } catch (error) {
+    let last_pass = await state.last_pass();
+    error = `Inliner failed during operation: <code>${operation}</code><br />
+The most recent pass was: <code>${last_pass}</code><br />
+The Python error was:<pre>${error}</pre>`
+    get_env().show_error(error);
   }
 }
 
@@ -31,12 +37,16 @@ let CreateNew = () => {
   let notebook_state = React.useContext(notebook_context);
 
   let on_click = async () => {
-    let {text, cell_id, set_cell_text} = get_env().get_and_insert()
-    let state = new InlineState(cell_id, set_cell_text, notebook_state);
-    await handle_error(state, () => state.setup(text));
+    let {
+      text,
+      cell_id,
+      set_cell_text
+    } = get_env().get_and_insert()
+    let state = new InlineState(set_cell_text, notebook_state);
+    await handle_error('create_new', state, () => state.setup(text));
     notebook_state.add_state(state);
 
-    handle_error(state, () => state.refresh_target_suggestions());
+    handle_error('refresh_target_suggestions', state, () => state.refresh_target_suggestions());
   };
 
   return <button className="inline-btn inline-create" onClick={on_click}>
@@ -47,7 +57,7 @@ let CreateNew = () => {
 let Undo = mobx_react.observer(() => {
   let state = React.useContext(notebook_context).current_state;
   return <button className="inline-btn inline-undo"
-                 onClick={() => handle_error(state, () => state.undo())}>
+                 onClick={() => handle_error('undo', state, () => state.undo())}>
     <i className="fa fa-undo"></i>
   </button>;
 });
@@ -57,12 +67,12 @@ let Targets = mobx_react.observer(() => {
 
   let suggestions =
     Array.from(state.target_suggestions.entries())
-         .map(([mod, src]) => {
-           return {
-             label: `${mod} (${src})`,
-             value: mod
-           }
-         });
+    .map(([mod, src]) => {
+      return {
+        label: `${mod} (${src})`,
+        value: mod
+      }
+    });
 
   return <div>
     <div className='inline-targets'>
@@ -73,7 +83,7 @@ let Targets = mobx_react.observer(() => {
     <h3>
       Suggestions
       <button className="inline-refresh-targets"
-              onClick={() => handle_error(state, () => state.refresh_target_suggestions())}>
+              onClick={() => handle_error('refresh_target_suggestions', state, () => state.refresh_target_suggestions())}>
         <i className="fa fa-refresh"></i>
       </button>
     </h3>
@@ -101,13 +111,13 @@ let Passes = mobx_react.observer(() => {
   return <div className='inline-passes'>
     <div>
       <button className="inline-btn"
-              onClick={() => handle_error(state, () => state.autoschedule())}>
+              onClick={() => handle_error('autoschedule', state, () => state.autoschedule())}>
         Autoschedule
       </button>
     </div>
     <div>
       <button className="inline-btn"
-              onClick={() => handle_error(state, () => state.autoschedule_noinline())}>
+              onClick={() => handle_error('autoschedule_noinline', state, () => state.autoschedule_noinline())}>
         Autoschedule (no inline)
       </button>
     </div>
@@ -115,10 +125,12 @@ let Passes = mobx_react.observer(() => {
       let pass_name = pass.replace('_', ' ');
       pass_name = pass_name.charAt(0).toUpperCase() + pass_name.slice(1);
 
-      return <div key={pass}><button className="inline-btn"
-                                     onClick={() => handle_error(state, () => state.run_pass(pass))}>
-        {pass_name}
-      </button></div>;
+      return <div key={pass}>
+        <button className="inline-btn"
+                onClick={() => handle_error(pass, state, () => state.run_pass(pass))}>
+          {pass_name}
+        </button>
+      </div>;
     })}
   </div>;
 });

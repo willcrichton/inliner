@@ -3,9 +3,11 @@ import ReactDOM from 'react-dom';
 import {
   ICommandPalette,
   MainAreaWidget,
+  Dialog
 } from '@jupyterlab/apputils';
 import {
-  NotebookActions
+  NotebookActions,
+  INotebookTracker
 } from '@jupyterlab/notebook';
 import {
   Widget
@@ -16,32 +18,40 @@ import {
   notebook_context
 } from './main';
 import {
-  set_env, Env
+  set_env,
+  Env
 } from './env';
 import {
   NotebookState
 } from './state';
 
-window.show_error = async function(state, err) {
-  console.error(err);
-}
-
 class LabEnv extends Env {
-  constructor(notebook, state, session) {
+  constructor(shell, tracker, state) {
     super();
 
-    this.notebook = notebook;
+    this.shell = shell;
     this.state = state;
-    this.session = session;
 
-    this.state.current_cell = this.get_cell_id();
+    this._update_notebook();
+    this._update_cell_id();
+
+    tracker.currentChanged.connect(() => {
+      this._update_notebook();
+    }, this);
 
     this.notebook.activeCellChanged.connect(() => {
-      this.state.current_cell = this.get_cell_id();
+      this._update_cell_id();
     }, this);
   }
 
-  get_cell_id() { return this.notebook.activeCell.editor.uuid; }
+  _update_notebook() {
+    this.notebook = this.shell.currentWidget.content;
+    this.session = this.shell.currentWidget.session;
+  }
+
+  _update_cell_id() {
+    this.state.current_cell = this.notebook.activeCell.editor.uuid;
+  }
 
   get_and_insert() {
     const before_cell = this.notebook.activeCell;
@@ -51,9 +61,28 @@ class LabEnv extends Env {
 
     return {
       text: before_cell.model.value.text,
-      cell_id: this.get_cell_id(),
-      set_cell_text: (text) => { after_cell.model.value.text = text; }
+      set_cell_text: (text) => {
+        after_cell.model.value.text = text;
+      }
     };
+  }
+
+  show_error(error) {
+    let widget = new Widget();
+    widget.node.innerHTML = error;
+
+    let dialog = new Dialog({
+      title: 'Inliner error',
+      body: widget,
+      buttons: [Dialog.okButton({
+        label: 'Dismiss'
+      })]
+    });
+
+    const content = dialog.node.querySelector('.jp-Dialog-content');
+    content.style.maxWidth = '900px';
+
+    return dialog.launch();
   }
 
   execute(pysrc, wait_output) {
@@ -66,28 +95,39 @@ class LabEnv extends Env {
     });
 
     return new Promise((resolve, reject) => {
+      let output = null;
+      let error = null;
       if (wait_output) {
-        future.onIOPub = (msg) => {
+        future.registerMessageHook((msg) => {
+          console.log('iopub', pysrc, msg);
           if (msg.msg_type == 'stream') {
-            resolve(msg.content.text);
+            if (msg.content.name == 'stderr') {
+              console.warn('stderr', msg.content.text);
+              //error = msg.content.text;
+            } else {
+              output = msg.content.text;
+            }
           } else if (msg.msg_type == 'error') {
-            reject(this.format_trace(msg.content.traceback));
+            error = this.format_trace(msg.content.traceback);
           }
-        }
+          return true;
+        });
       } else {
         future.onReply = (msg) => {
+          console.log('reply', pysrc, msg);
           const status = msg.content.status;
-          if (status == 'ok') {
-            resolve();
-          } else if (status == 'error') {
-            reject(this.format_trace(msg.content.traceback));
-          } else if (status == 'aborted') {
-            resolve();
-          } else {
-            throw `Unknown status ${msg.status}`;
+          if (status == 'error') {
+            error = reject(this.format_trace(msg.content.traceback));
           }
         }
       }
+      future.done.then(() => {
+        if (error !== null) {
+          reject(error);
+        } else {
+          resolve(output);
+        }
+      })
     });
   }
 }
@@ -96,7 +136,7 @@ class LabInliner extends React.Component {
   constructor(props) {
     super(props);
     this._state = new NotebookState();
-    set_env(new LabEnv(props.notebook, this._state, props.session));
+    set_env(new LabEnv(props.shell, props.tracker, this._state));
   }
 
   render() {
@@ -111,8 +151,8 @@ class LabInliner extends React.Component {
 export default {
   id: 'inliner',
   autoStart: true,
-  requires: [ICommandPalette],
-  activate: (app, palette) => {
+  requires: [ICommandPalette, INotebookTracker],
+  activate: (app, palette, tracker) => {
     const content = new Widget();
     const widget = new MainAreaWidget({
       content
@@ -125,18 +165,11 @@ export default {
     app.commands.addCommand(command, {
       label: 'Open Inliner',
       execute: () => {
-        if (!app.shell.currentWidget) {
-          return;
-        }
-
-        const notebook = app.shell.currentWidget.content;
-        const session = app.shell.currentWidget.session;
-
         app.shell.add(widget, 'right');
         app.shell.activateById(widget.id);
-
-        ReactDOM.render(<LabInliner notebook={notebook} session={session} />,
-                        content.node);
+        ReactDOM.render(
+          <LabInliner shell={app.shell} tracker={tracker} />,
+          content.node);
       }
     });
 

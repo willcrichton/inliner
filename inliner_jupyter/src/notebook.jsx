@@ -7,23 +7,13 @@ import {
   Inliner,
   notebook_context
 } from './main';
-import {set_env, Env} from './env';
+import {
+  set_env,
+  Env
+} from './env';
 import {
   NotebookState
 } from './state';
-
-window.show_error = async function(state, err) {
-  let last_pass = await state.last_pass();
-  dialog.modal({
-    title: 'Inliner error',
-    body: $(`<div>Last pass: ${last_pass}<br />
-    <pre>${err}</pre>
-    </div>`),
-    buttons: {
-      'Done': {}
-    }
-  });
-}
 
 const DEV_MODE = true;
 
@@ -41,6 +31,16 @@ class NotebookEnv extends Env {
     // https://github.com/jupyter/notebook/blob/76a323e677b7080a1e9a88437d6b5cea6cc0403b/notebook/static/notebook/js/notebook.js#L332
     ['select.Cell', 'set_dirty.Notebook'].forEach((event) => {
       Jupyter.notebook.events.on(event, () => update_current_cell());
+    });
+  }
+
+  show_error(error) {
+    dialog.modal({
+      title: 'Inliner error',
+      body: $(error),
+      buttons: {
+        'Dismiss': {}
+      }
     });
   }
 

@@ -6,7 +6,9 @@ import {
   autorun
 } from 'mobx';
 
-import {get_env} from './env';
+import {
+  get_env
+} from './env';
 
 export let check_call = (pysrc) => get_env().execute(pysrc, false);
 export let check_output = (pysrc) => get_env().execute(pysrc, true);
@@ -92,11 +94,11 @@ export class InlineState {
   @observable target_suggestions = new Map();
   @observable program_history = []
 
-  constructor(cell_id, set_cell_text, notebook_state) {
-    this.cell_id = cell_id;
+  constructor(set_cell_text, notebook_state) {
+    this.cell_id = notebook_state.current_cell;
     this.set_cell_text = set_cell_text;
     this.bridge = new PythonBridge('inliner');
-    this.notebook_state = notebook_state
+    this.notebook_state = notebook_state;
   }
 
   @spinner
@@ -143,7 +145,9 @@ export class InlineState {
     return ret;
   }
 
-  async last_pass() { return this.bridge.last_pass(); }
+  async last_pass() {
+    return this.bridge.last_pass();
+  }
 
   autoschedule_noinline() {
     return this.autoschedule(false)
