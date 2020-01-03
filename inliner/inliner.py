@@ -101,7 +101,7 @@ class ClassTarget(InlineTarget):
 
 
 class Inliner:
-    def __init__(self, source, targets, globls=None):
+    def __init__(self, source, targets, globls=None, unwrap_function=False):
         if not isinstance(source, str):
             if globls is None and hasattr(source, '__globals__'):
                 globls = {**source.__globals__, **get_function_locals(source)}
@@ -109,7 +109,8 @@ class Inliner:
             source = inspect.getsource(source)
 
         mod = ast.parse(textwrap.dedent(source))
-        if len(mod.body) == 1 and isinstance(mod.body[0], ast.FunctionDef):
+        if len(mod.body) == 1 and isinstance(mod.body[0], ast.FunctionDef) \
+           and unwrap_function:
             body = mod.body[0].body
         else:
             body = mod.body

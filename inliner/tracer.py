@@ -60,9 +60,9 @@ class Tracer:
         self.execed_lines = defaultdict(int)
         self.trace_opcodes = trace_opcodes
         self.trace_lines = trace_lines
-        self.globls = (globls or {}).copy()
         self._last_store = None
         self.debug = debug
+        self.globls = globls.copy() #{k: try_copy(v) for k, v in globls.items()}
 
     def get_value(self, frame, name):
         # Lookup value in relevant store

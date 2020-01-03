@@ -132,7 +132,10 @@ def try_copy(v):
     try:
         return copy.deepcopy(v)
     except Exception:
-        return v
+        try:
+            return copy.copy(v)
+        except Exception:
+            return v
 
 
 def get_function_locals(f):

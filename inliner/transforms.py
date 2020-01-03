@@ -420,13 +420,16 @@ class ContextualTransforms:
         # and stop there.
         decorators = f_ast.decorator_list
         assert len(decorators) <= 1
-        if len(decorators) == 1 and \
-           not (isinstance(decorators[0], ast.Name) and
-                (decorators[0].id == 'property'
-                 or decorators[0].id == 'classmethod')):
-            self._expand_decorators(new_stmts, f_ast, call_expr, call_obj,
-                                    ret_var)
-            return new_stmts
+        if len(decorators) == 1:
+            d = decorators[0]
+            builtin_decorator = (isinstance(d, ast.Name) and
+                                  (d.id in ['property', 'classmethod']))
+            derived_decorator = (isinstance(d, ast.Attribute) and
+                                  (d.attr in ['setter']))
+            if not (builtin_decorator or derived_decorator):
+                self._expand_decorators(new_stmts, f_ast, call_expr, call_obj,
+                                        ret_var)
+                return new_stmts
 
         # If we're inlining a decorator, we need to remove @functools.wraps calls
         # to avoid messing up inspect.getsource

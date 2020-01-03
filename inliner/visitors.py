@@ -140,16 +140,14 @@ class ReplaceSelf(ast.NodeTransformer):
     def visit_Call(self, expr):
         if isinstance(expr.func, ast.Attribute) and \
             isinstance(expr.func.value, ast.Name) and \
-            expr.func.value.id == 'self' and \
-            hasattr(self.cls, expr.func.attr): # e.g. calling self.model() where model is attr, not method
+            expr.func.value.id == 'self':
 
-            expr.func.value = make_name(self.cls.__name__)
+            if hasattr(self.cls, expr.func.attr):
+                attr = getattr(self.cls, expr.func.attr)
 
-            # If the method being called is bound when directly accessing
-            # it on the class, it's probably a @classmethod, and we shouldn't
-            # add `self` as an argument
-            if not inspect.ismethod(getattr(self.cls, expr.func.attr)):
-                expr.args.insert(0, make_name('self'))
+                if inspect.isfunction(attr):
+                    expr.func.value = make_name(self.cls.__name__)
+                    expr.args.insert(0, make_name('self'))
 
         return expr
 

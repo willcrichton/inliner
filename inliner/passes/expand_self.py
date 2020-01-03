@@ -29,17 +29,12 @@ class UnsafeToExpand(ast.NodeVisitor):
         self.unsafe = set()
         self.globls = globls
 
-    def visit_Name(self, name):
-        self.unsafe.add(name.id);
+    def visit_Call(self, call):
+        for arg in call.args:
+            if isinstance(arg, ast.Name):
+                self.unsafe.add(arg.id)
 
-    def visit_Assign(self, stmt):
-        finder = FindObjNew(self.globls)
-        finder.visit(stmt)
-        if len(finder.objs) == 0:
-            self.generic_visit(stmt)
-
-    def visit_Attribute(self, attr):
-        pass
+        self.generic_visit(call)
 
 
 class ExpandSelfPass(BasePass):

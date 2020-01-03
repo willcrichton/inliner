@@ -46,31 +46,61 @@ class FindCall(ast.NodeTransformer):
         self.generic_visit(call_expr)
         return call_expr
 
-    # Classes using @property have accessors that are actually calling
-    # functions. This visitor looks for uses of @property.
-    def visit_Attribute(self, attr):
+    def _is_property(self, node):
+        assert isinstance(node, ast.Attribute)
+
         # for example, foo.x where the class of foo has @property def x()
         try:
             # get the runtime object for foo
-            prop_obj = eval(a2s(attr.value), self.globls, self.globls)
+            prop_obj = eval(a2s(node.value), self.globls, self.globls)
         except Exception:
             # if we can't find it, ignore
-            return attr
+            return None
 
         # if foo should be inlined, and it is an instance of a class,
         # and the class has the attribute, and the attribute is a property
         if self.inliner.should_inline(prop_obj) and \
            hasattr(prop_obj, '__class__') and \
-           hasattr(prop_obj.__class__, attr.attr):
-            prop = getattr(prop_obj.__class__, attr.attr)
+           hasattr(prop_obj.__class__, node.attr):
+            prop = getattr(prop_obj.__class__, node.attr)
             if isinstance(prop, property):
-                # foo.x is same as Foo.x.fget(foo), so we treat the property
-                # as a function call so we can pass it to the function inliner
-                self.call_obj = prop.fget
-                self.call_expr = parse_expr("{}.{}_getter({})".format(
-                    prop_obj.__class__.__name__, attr.attr, a2s(attr.value)))
-                self.ret_var = self.inliner.fresh(attr.attr)
-                return make_name(self.ret_var)
+                return (prop, prop_obj)
+
+        return None
+
+    def visit_Assign(self, assgn):
+        if len(assgn.targets) == 1:
+            target = assgn.targets[0]
+            if isinstance(target, ast.Attribute):
+                ret = self._is_property(target)
+                if ret is not None:
+                    (prop, prop_obj) = ret
+                    self.call_obj = prop.fset
+                    self.call_expr = parse_expr("{}.{}_setter({}, {})".format(
+                        prop_obj.__class__.__name__, target.attr, a2s(target.value), a2s(assgn.value)))
+                    self.ret_var = self.inliner.fresh(target.attr)
+                    return None
+
+        self.generic_visit(assgn)
+        return assgn
+
+    # Classes using @property have accessors that are actually calling
+    # functions. This visitor looks for uses of @property.
+    def visit_Attribute(self, attr):
+        ret = self._is_property(attr)
+        if ret is not None:
+            (prop, prop_obj) = ret
+            # foo.x is same as Foo.x.fget(foo), so we treat the property
+            # as a function call so we can pass it to the function inliner
+            self.call_obj = prop.fget
+            self.call_expr = parse_expr("{}.{}_getter({})".format(
+                prop_obj.__class__.__name__, attr.attr, a2s(attr.value)))
+
+            # TODO: need to generate an import for
+            # prop_obj.__class__.__name__
+
+            self.ret_var = self.inliner.fresh(attr.attr)
+            return make_name(self.ret_var)
 
         self.generic_visit(attr)
         return attr
@@ -242,7 +272,7 @@ class InlinePass(BasePass):
                                                  comp_call_finder) + [stmt]
 
         call_finder = FindCall(self.inliner, self.globls)
-        call_finder.visit(stmt)
+        stmt = call_finder.visit(stmt)
 
         new_stmts = []
         if call_finder.call_expr is not None:
