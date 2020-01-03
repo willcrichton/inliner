@@ -19,8 +19,12 @@ npm install
 npm run build
 popd
 
+# Standalone notebook
 jupyter nbextension install inliner_jupyter --user -s
 jupyter nbextension enable inliner_jupyter/dist/bundle --user
+
+# JupyterLab
+jupyter labextension link .
 ```
 
 ## Usage

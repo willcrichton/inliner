@@ -1,13 +1,21 @@
 .inliner {
-    width: 200px;
-    position: absolute;
-    right: 20px;
     fontsize: 18px;
-    top: 130px;
-    z-index: 100;
-    background: white;
-    padding: 10px;
-    border: 1px solid #777;
+
+    &.inliner-notebook {
+        width: 200px;
+        position: absolute;
+        right: 20px;
+        top: 130px;
+        z-index: 100;
+        background: white;
+        padding: 10px;
+        border: 1px solid #777;
+    }
+
+    &.inliner-lab {
+        padding: 10px;
+        background: white;
+    }
 
     ul {
         list-style-position: inside;

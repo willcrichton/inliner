@@ -1,7 +1,4 @@
-import Jupyter from 'base/js/namespace';
-import dialog from 'base/js/dialog';
 import React from 'react';
-import ReactDOM from 'react-dom';
 import * as mobx_react from 'mobx-react';
 import 'brace';
 import 'brace/mode/python';
@@ -10,39 +7,23 @@ import AceDiff from 'ace-diff';
 import Select from 'react-select';
 
 import {
-  check_output
-} from './utils';
-import {
   InlineState,
   NotebookState
 } from './state';
+import {get_env} from './env';
 
 import '../css/main.scss';
 import 'ace-diff/dist/ace-diff.min.css'
 
-const DEV_MODE = true;
-const notebook_context = React.createContext(null);
+export const notebook_context = React.createContext(null);
 
-
-async function show_error(state, err) {
-  let last_pass = await state.last_pass();
-  dialog.modal({
-    title: 'Inliner error',
-    body: $(`<div>Last pass: ${last_pass}<br />
-    <pre>${err}</pre>
-    </div>`),
-    buttons: {
-      'Done': {}
-    }
-  });
-}
 
 let handle_error = async (state, f) => {
   try {
     let ret = await f();
     return ret;
   } catch (err) {
-    show_error(state, err);
+    window.show_error(state, err);
   }
 }
 
@@ -50,14 +31,9 @@ let CreateNew = () => {
   let notebook_state = React.useContext(notebook_context);
 
   let on_click = async () => {
-    let cell = Jupyter.notebook.get_selected_cell();
-
-    let new_cell = Jupyter.notebook.insert_cell_below();
-    Jupyter.notebook.select_next();
-    notebook_state.current_cell = new_cell.cell_id;
-
-    let state = new InlineState(new_cell, notebook_state);
-    await handle_error(state, () => state.setup(cell.get_text()));
+    let {text, cell_id, set_cell_text} = get_env().get_and_insert()
+    let state = new InlineState(cell_id, set_cell_text, notebook_state);
+    await handle_error(state, () => state.setup(text));
     notebook_state.add_state(state);
 
     handle_error(state, () => state.refresh_target_suggestions());
@@ -79,28 +55,14 @@ let Undo = mobx_react.observer(() => {
 let Targets = mobx_react.observer(() => {
   let state = React.useContext(notebook_context).current_state;
 
-  /*
-   *   {state.target_suggestions.map((name) => {
-   *     let on_click = () => {
-   *       state.targets.push(name);
-   *       state.target_suggestions.splice(
-   *         state.target_suggestions.indexOf(name), 1);
-   *     };
-   *     return <div key={name}>
-   *       <button onClick={on_click}>+</button>
-   *       <code>{name}</code>
-   *     </div>;
-   *   })}
-   *  */
-
   let suggestions =
     Array.from(state.target_suggestions.entries())
-         .map(([mod, src]) => {
-           return {
-             label: `${mod} (${src})`,
-             value: mod
-           }
-         });
+    .map(([mod, src]) => {
+      return {
+        label: `${mod} (${src})`,
+        value: mod
+      }
+    });
 
   return <div>
     <div className='inline-targets'>
@@ -231,81 +193,27 @@ let DiffButton = mobx_react.observer(() => {
   </span>;
 });
 
-@mobx_react.observer
-class Inliner extends React.Component {
-  state = {
-    show: DEV_MODE,
-  }
-
-  constructor(props) {
-    super(props);
-    this._state = new NotebookState();
-  }
-
-  componentDidMount() {
-    let toggle_show = () => {
-      this.setState({
-        show: !this.state.show
-      })
-    };
-
-    Jupyter.toolbar.add_buttons_group([
-      Jupyter.keyboard_manager.actions.register({
-        'help': 'Inliner',
-        'icon': 'fa-bolt',
-        'handler': toggle_show,
-      }, 'toggle-inliner', 'inliner')
-    ]);
-
-    let update_current_cell = () => {
-      let cell = Jupyter.notebook.get_selected_cell();
-      this._state.current_cell = cell.cell_id;
-    }
-
-    // https://github.com/jupyter/notebook/blob/76a323e677b7080a1e9a88437d6b5cea6cc0403b/notebook/static/notebook/js/notebook.js#L332
-    ['select.Cell', 'set_dirty.Notebook'].forEach((event) => {
-      Jupyter.notebook.events.on(event, () => update_current_cell());
-    });
-  }
-
-  render() {
-    let style = {
-      display: this.state.show ? 'block' : 'none'
-    };
-
-    return <div className='inliner' style={style}>
-      <notebook_context.Provider value={this._state}>
-        <h1>Inliner</h1>
-        <CreateNew />
-        <Undo />
-        <DiffButton />
-        {this._state.current_state
-        ? <div>
-          <hr />
-          <div>
-            <h2>Targets</h2>
-            <Targets />
-          </div>
-          <hr />
-          <div>
-            <h2>Passes</h2>
-            <Passes />
-          </div>
-        </div>
-        : null}
-        <Spinner />
-      </notebook_context.Provider>
-    </div>;
-  }
-}
-
-export async function load_ipython_extension() {
-  await Jupyter.notebook.config.loaded;
-
-  let container = document.createElement('div');
-  document.body.appendChild(container);
-
-  ReactDOM.render(<Inliner />, container);
-
-  console.log('[Inliner] Extension initialized');
-};
+export let Inliner = mobx_react.observer((props) => {
+  let state = React.useContext(notebook_context).current_state;
+  return <div className={`inliner ${props.className}`}>
+    <h1>Inliner</h1>
+    <CreateNew />
+    <Undo />
+    <DiffButton />
+    {state
+    ? <div>
+      <hr />
+      <div>
+        <h2>Targets</h2>
+        <Targets />
+      </div>
+      <hr />
+      <div>
+        <h2>Passes</h2>
+        <Passes />
+      </div>
+    </div>
+    : null}
+    <Spinner />
+  </div>;
+});

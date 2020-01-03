@@ -6,10 +6,10 @@ import {
   autorun
 } from 'mobx';
 
-import {
-  check_call,
-  check_output
-} from './utils';
+import {get_env} from './env';
+
+export let check_call = (pysrc) => get_env().execute(pysrc, false);
+export let check_output = (pysrc) => get_env().execute(pysrc, true);
 
 class PythonBridge {
   constructor(name) {
@@ -87,13 +87,14 @@ let spinner = (target, name, descriptor) => {
 }
 
 export class InlineState {
-  @observable cell
+  @observable cell_id
   @observable targets = []
   @observable target_suggestions = new Map();
   @observable program_history = []
 
-  constructor(cell, notebook_state) {
-    this.cell = cell;
+  constructor(cell_id, set_cell_text, notebook_state) {
+    this.cell_id = cell_id;
+    this.set_cell_text = set_cell_text;
     this.bridge = new PythonBridge('inliner');
     this.notebook_state = notebook_state
   }
@@ -111,7 +112,7 @@ export class InlineState {
   @spinner
   async update_cell() {
     let src = await this.bridge.make_program();
-    this.cell.set_text(src);
+    this.set_cell_text(src);
     this.program_history.push(src);
   }
 
@@ -176,7 +177,7 @@ export class NotebookState {
   @observable show_spinner = false
 
   add_state(state) {
-    this.states[state.cell.cell_id] = state;
+    this.states[state.cell_id] = state;
   }
 
   @computed get current_state() {
