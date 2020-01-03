@@ -134,6 +134,10 @@ export class InlineState {
 
   @spinner
   async run_pass(pass, fixpoint = false) {
+    if (pass == 'inline' && this.targets.length == 0) {
+      throw "Must have at least one inline target to run inline pass";
+    }
+
     let ret = await this.bridge.run_pass(pass, fixpoint);
     await this.update_cell();
     return ret;
@@ -141,8 +145,12 @@ export class InlineState {
 
   async last_pass() { return this.bridge.last_pass(); }
 
+  autoschedule_noinline() {
+    return this.autoschedule(false)
+  }
+
   @spinner
-  async autoschedule() {
+  async autoschedule(inline = true) {
     let run_until = async (passes) => {
       while (true) {
         var any_pass = false;
@@ -160,8 +168,12 @@ export class InlineState {
     };
 
     let passes = [
-      'inline', 'deadcode', 'copy_propagation', 'lifetimes', 'simplify_varargs', 'partial_eval', 'expand_tuples', 'clean_imports', 'array_index'
+      'deadcode', 'copy_propagation', 'lifetimes', 'simplify_varargs', 'partial_eval', 'expand_tuples', 'clean_imports', 'array_index'
     ];
+
+    if (inline) {
+      passes.unshift('inline');
+    }
 
     await run_until(passes);
     await this.run_pass('expand_self');

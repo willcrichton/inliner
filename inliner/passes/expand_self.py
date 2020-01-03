@@ -24,6 +24,24 @@ class FindObjNew(ast.NodeVisitor):
         pass
 
 
+class UnsafeToExpand(ast.NodeVisitor):
+    def __init__(self, globls):
+        self.unsafe = set()
+        self.globls = globls
+
+    def visit_Name(self, name):
+        self.unsafe.add(name.id);
+
+    def visit_Assign(self, stmt):
+        finder = FindObjNew(self.globls)
+        finder.visit(stmt)
+        if len(finder.objs) == 0:
+            self.generic_visit(stmt)
+
+    def visit_Attribute(self, attr):
+        pass
+
+
 class ExpandSelfPass(BasePass):
     """
     Replaces all class instances with variables.
@@ -52,6 +70,9 @@ class ExpandSelfPass(BasePass):
     tracer_args = {}
 
     def visit_Module(self, mod):
+        unsafe = UnsafeToExpand(self.globls)
+        unsafe.visit(mod)
+
         finder = FindObjNew(self.globls)
         finder.visit(mod)
 
@@ -66,7 +87,8 @@ class ExpandSelfPass(BasePass):
             # so we register it to be inlined.
             if self.inliner.should_inline(obj) and \
                not inspect.isclass(obj) and \
-               not inspect.ismodule(obj):
+               not inspect.ismodule(obj) and \
+               not var in unsafe.unsafe:
 
                 if id(obj) not in self.objs_to_inline and id(
                         obj) in finder.objs:

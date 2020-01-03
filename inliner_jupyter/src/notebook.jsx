@@ -7,7 +7,7 @@ import {
   Inliner,
   notebook_context
 } from './main';
-import {set_env} from './env';
+import {set_env, Env} from './env';
 import {
   NotebookState
 } from './state';
@@ -27,8 +27,10 @@ window.show_error = async function(state, err) {
 
 const DEV_MODE = true;
 
-class NotebookEnv {
+class NotebookEnv extends Env {
   constructor(state) {
+    super();
+
     this._state = state;
 
     let update_current_cell = () => {

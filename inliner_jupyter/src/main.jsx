@@ -57,12 +57,12 @@ let Targets = mobx_react.observer(() => {
 
   let suggestions =
     Array.from(state.target_suggestions.entries())
-    .map(([mod, src]) => {
-      return {
-        label: `${mod} (${src})`,
-        value: mod
-      }
-    });
+         .map(([mod, src]) => {
+           return {
+             label: `${mod} (${src})`,
+             value: mod
+           }
+         });
 
   return <div>
     <div className='inline-targets'>
@@ -100,9 +100,15 @@ let Passes = mobx_react.observer(() => {
 
   return <div className='inline-passes'>
     <div>
-      <button className="inline-btn inline-autoschedule"
+      <button className="inline-btn"
               onClick={() => handle_error(state, () => state.autoschedule())}>
         Autoschedule
+      </button>
+    </div>
+    <div>
+      <button className="inline-btn"
+              onClick={() => handle_error(state, () => state.autoschedule_noinline())}>
+        Autoschedule (no inline)
       </button>
     </div>
     {passes.map((pass) => {
