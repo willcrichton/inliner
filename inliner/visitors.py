@@ -233,6 +233,12 @@ class RemoveFunctoolsWraps(ast.NodeTransformer):
                 fdef.decorator_list = []
         return fdef
 
+    def visit_Call(self, call):
+        if compare_ast(call.func, parse_expr("update_wrapper")):
+            return call.args[0]
+        self.generic_visit(call)
+        return call
+
 
 class CollectModules(ast.NodeVisitor):
     def __init__(self, globls):

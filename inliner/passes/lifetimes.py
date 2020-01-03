@@ -66,7 +66,9 @@ class LifetimesPass(BasePass):
             return stmt
 
     def visit_FunctionDef(self, stmt):
-        if len(self.tracer.reads[stmt.name]) == 0:
+        func_unread = len(self.tracer.reads[stmt.name]) == 0
+        no_decorators = len(stmt.decorator_list) == 0
+        if func_unread and no_decorators:
             self.change = True
             return None
         return stmt

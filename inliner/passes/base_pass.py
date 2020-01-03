@@ -1,4 +1,6 @@
 import ast
+from collections import defaultdict
+
 from ..tracer import Tracer
 
 
@@ -47,6 +49,11 @@ class BasePass(ast.NodeTransformer):
         # Don't recurse into inline function definitions
         return fdef
 
-    def run(self):
+    def run(self, **kwargs):
+        self.args = defaultdict(lambda: None)
+        for k, v in kwargs.items():
+            self.args[k] = v
+
         self.visit(self.inliner.module)
+
         return self.change

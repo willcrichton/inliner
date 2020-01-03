@@ -1,5 +1,4 @@
 import ast
-import textwrap
 
 from .base_pass import BasePass
 from ..common import SEP, parse_expr, COMMENT_MARKER, a2s
@@ -38,7 +37,7 @@ class RemoveSuffixesPass(BasePass):
         if isinstance(expr.value, ast.Str) and \
            expr.value.s.startswith(COMMENT_MARKER):
             comment = expr.value.s[len(COMMENT_MARKER):]
-            call = parse_expr(textwrap.dedent(comment))
+            call = parse_expr(comment)
             name_map = self.name_map.copy()
             generated_vars = self.inliner.generated_vars.copy()
             self.name_map = {}

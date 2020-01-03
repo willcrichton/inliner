@@ -215,7 +215,8 @@ class ContextualTransforms:
             if isinstance(call_expr.func, ast.Attribute):
                 cls = eval(a2s(call_expr.func.value), self.globls, self.globls)
             else:
-                cls = eval(a2s(call_expr.func), self.globls, self.globls).__class__
+                cls = eval(a2s(call_expr.func), self.globls,
+                           self.globls).__class__
 
         # HACK: we're assuming super() always refers to the first base class,
         # but it actually depends on the specific method being called and the MRO.
@@ -422,10 +423,10 @@ class ContextualTransforms:
         assert len(decorators) <= 1
         if len(decorators) == 1:
             d = decorators[0]
-            builtin_decorator = (isinstance(d, ast.Name) and
-                                  (d.id in ['property', 'classmethod']))
-            derived_decorator = (isinstance(d, ast.Attribute) and
-                                  (d.attr in ['setter']))
+            builtin_decorator = (isinstance(d, ast.Name)
+                                 and (d.id in ['property', 'classmethod']))
+            derived_decorator = (isinstance(d, ast.Attribute)
+                                 and (d.attr in ['setter']))
             if not (builtin_decorator or derived_decorator):
                 self._expand_decorators(new_stmts, f_ast, call_expr, call_obj,
                                         ret_var)

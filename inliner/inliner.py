@@ -214,11 +214,11 @@ class Inliner:
 
         return False
 
-    def run_pass(self, Pass):
+    def run_pass(self, Pass, **kwargs):
         start = now()
         try:
             pass_ = Pass(self)
-            change = pass_.run()
+            change = pass_.run(**kwargs)
         except Exception:
             self.module = copy.deepcopy(self.history[-1][0])
             raise

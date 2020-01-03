@@ -16,11 +16,11 @@ COMMENT_MARKER = '__comment: '
 
 
 def parse_stmt(s):
-    return ast.parse(s).body[0]
+    return ast.parse(textwrap.dedent(s)).body[0]
 
 
 def parse_expr(s):
-    return parse_stmt(s).value
+    return parse_stmt(textwrap.dedent(s)).value
 
 
 class SourceGeneratorWithComments(SourceGenerator):
@@ -165,7 +165,8 @@ class IsEffectFree(ast.NodeVisitor):
             return
 
         if isinstance(node, ast.Call):
-            if not any([compare_ast(node.func, f) for f in self.func_whitelist]):
+            if not any([compare_ast(node.func, f)
+                        for f in self.func_whitelist]):
                 self.effect_free = False
         else:
             if not isinstance(node, self.ast_whitelist):
