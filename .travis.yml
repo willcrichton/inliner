@@ -1,16 +1,29 @@
-language: python
-python: 3.7
-before_install:
-  - git clone https://github.com/berkerpeksag/astor/
-  - pushd astor && pip3 install . && popd
-install: pip3 install .
-script: travis_wait python3 setup.py test
-deploy:
-  skip_cleanup: true
-  provider: pypi
-  user: wcrichto
-  on:
-    tags: true
-    distributions: sdist bdist_wheel
-  password:
-    secure: GQJuNBrv6jlrr+T30iaOpEgMLSmirzSU6gL09U8RL/Jj4fBqUi16S8sdu2fbpONynb0xNE/9RwNCyH9HiOHoI870XFZh5DutPv86LcekwTq9L679KxByDF9LUWlXUUiA56w5h62dgZ94zlwFIlbhrD0W7udKFe1NhQ7VSm48Ek4A9eQ7lc13znIo1AndjIfHW0+jpjzaKr5KTQhylp03I0vYsP5Q/2zbL7yx8h2b3IJInOPYpWHVjufOp1s/jPuv9x+dq/e/zDjdv7MUSEaEnX+EOrcL7CBryJBpU5hXhXzz3wOqGxodyRvqRmnNpwvF+DzVb/M3+kO6zoOZ50rUloDkLzQ1JfqLMMAcsmd2d2CnrG48EejAYcOrl2oq0A7835s4komsBrSmG8UCVJdnbrv3s1WmP6JEXpGJQhaEJZSHnAIFkJj9idKTiJvLdZ2s3rGMeXtKvqfH6gqVHM6wrecKQbFCqVeGeoBH5gVnd1BJclbqdsHtvH7NLlTmwkFwj2CIt+NHnJeNCUUBSKj/Wkx5xxaxbM7pnV+6UVzQGPd8YU81nq2KgU/rPRZGTcgaEHqd7+YyfGTQJCArsb2iuhwc4Uc6VpRvyv5gSfUtECK7/tFspl9VQQDX0x1K1n9Qs4MMHbktsBma6A9mr7xIgxnH9+/LJxO0prl+Vk97NGo=
+matrix:
+  include:
+  - language: node_js
+    node_js: 10
+    before_install: cd inliner_jupyter
+    install: npm install && npm run prepublishOnly
+    deploy:
+      skip_cleanup: true
+      provider: npm
+      api_key:
+        secure: UnvI9/Tz2OIAL4ipsEiihHsDkrkPfCB5byNYWTWuL4HzBImdwQnYXw15b+J9xd9TXb8W+ljjzvPrpfpTx9cWARZnkRKfsmHbQfr66JTJekV9SSc73DmDog2348ol5wHc/nj+QOVO1ZRAKmafZKhr73awkRB+318xmx1YhTML5wCoyF694bjgMvAF74v2bHVThf0UexLYnAbobfEv+nc2k1jp5pdy0Rt2GdXm/S+IEAefRY3ep0HbJ411qZ9TtQFCnlXolNZUEKRVSS/sEwFE2/U/gogvDhM5XSa7RaxBEiarHm47kSDme6uc3hT3LkMSG0OTse7Bw/d6VpWLiByHqfsaDWlGsb7Fjty/SDKFWJHkP7FqnCLN0Nnbpaf9VFziOYEHb34Lx5chfRmwjOxu+1W7LSg6ZjVQglwzUwkZKAuclhCygORh2wP+zA4jeUNMd1ZzSNTXETC0pT3K6DwEkH5bCz73NXlneapj0TQy6Fw5VshHEYGz2QYxuBPlCW1C1jo+VdDugTqX0QhQA0fbwPRlgac13Fj0XATGg5ysyOFfUGSX8Hn8jdj9VJAGYszYJezXYww6wwoA4vn+gptYhnq9OzPBYPMiThs5C/2r/M6vTw/b10DDVjNwPpUmqVRMewwsBocDFIx70qssIsvWFqWIulNsLlXXd/HXxmbTmCI=
+      on:
+        tags: true
+  - language: python
+    python: 3.7
+    before_install:
+    - git clone https://github.com/berkerpeksag/astor/
+    - pushd astor && pip3 install . && popd
+    install: pip3 install .
+    script: travis_wait python3 setup.py test
+    deploy:
+      skip_cleanup: true
+      provider: pypi
+      user: wcrichto
+      on:
+        tags: true
+        distributions: bdist_wheel
+      password:
+        secure: GQJuNBrv6jlrr+T30iaOpEgMLSmirzSU6gL09U8RL/Jj4fBqUi16S8sdu2fbpONynb0xNE/9RwNCyH9HiOHoI870XFZh5DutPv86LcekwTq9L679KxByDF9LUWlXUUiA56w5h62dgZ94zlwFIlbhrD0W7udKFe1NhQ7VSm48Ek4A9eQ7lc13znIo1AndjIfHW0+jpjzaKr5KTQhylp03I0vYsP5Q/2zbL7yx8h2b3IJInOPYpWHVjufOp1s/jPuv9x+dq/e/zDjdv7MUSEaEnX+EOrcL7CBryJBpU5hXhXzz3wOqGxodyRvqRmnNpwvF+DzVb/M3+kO6zoOZ50rUloDkLzQ1JfqLMMAcsmd2d2CnrG48EejAYcOrl2oq0A7835s4komsBrSmG8UCVJdnbrv3s1WmP6JEXpGJQhaEJZSHnAIFkJj9idKTiJvLdZ2s3rGMeXtKvqfH6gqVHM6wrecKQbFCqVeGeoBH5gVnd1BJclbqdsHtvH7NLlTmwkFwj2CIt+NHnJeNCUUBSKj/Wkx5xxaxbM7pnV+6UVzQGPd8YU81nq2KgU/rPRZGTcgaEHqd7+YyfGTQJCArsb2iuhwc4Uc6VpRvyv5gSfUtECK7/tFspl9VQQDX0x1K1n9Qs4MMHbktsBma6A9mr7xIgxnH9+/LJxO0prl+Vk97NGo=
