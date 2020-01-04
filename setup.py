@@ -2,7 +2,7 @@ from setuptools import setup
 
 if __name__ == "__main__":
     setup(name='inliner',
-          version='0.1.0',
+          version='0.3.0',
           description='Human-readable inlining of Python code',
           url='http://github.com/willcrichton/inliner',
           author='Will Crichton',
