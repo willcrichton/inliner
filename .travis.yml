@@ -7,8 +7,7 @@ before_install:
 - pushd astor && pip3 install . && popd
 install:
 - pushd inliner_jupyter && npm install && npm run prepublishOnly && popd
-script: travis_wait python3.7 setup.py test
-before_deploy: cd inliner_jupyter
+script: travis_wait python3.7 setup.py test && cd inliner_jupyter
 after_deploy: cd ..
 deploy:
 - skip_cleanup: true
