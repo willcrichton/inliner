@@ -3,7 +3,7 @@
 
 ## Setup
 
-```
+```bash
 pip install inliner
 
 # Jupyter notebook extension
@@ -15,7 +15,7 @@ jupyter labextension install @wcrichto/inliner
 
 ### From source
 
-```
+```bash
 git clone https://github.com/willcrichton/inliner
 cd inliner
 pip3 install -e .
