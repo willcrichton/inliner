@@ -3,33 +3,31 @@
 
 ## Setup
 
-### Python package
+```
+pip install inliner
+
+# Jupyter notebook extension
+jupyter nbextension enable inliner/notebook
+
+# JupyterLab extension
+jupyter labextension install @wcrichto/inliner
+```
+
+### From source
 
 ```
 git clone https://github.com/willcrichton/inliner
 cd inliner
 pip3 install -e .
-```
 
-### Jupyter extension
-
-```
 pushd inliner_jupyter
 npm install
 npm run build
 popd
-```
 
-#### Standard notebook
-
-```
 jupyter nbextension install inliner_jupyter --user -s
 jupyter nbextension enable inliner_jupyter/dist/notebook --user
-```
 
-#### JupyterLab
-
-```
 jupyter labextension link inliner_jupyter
 ```
 
