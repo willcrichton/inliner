@@ -10,6 +10,14 @@ install:
 script: travis_wait python3.7 setup.py test
 deploy:
 - skip_cleanup: true
+  provider: npm
+  email: wcrichto@cs.stanford.edu
+  path: inliner_jupyter
+  api_key:
+    secure: "qiTfe+Vh+umtGM2yqYEBJXL8WGKdpKq+rITyxLuh+a/zVZ4Rzs3bcfLxolmgl/az4PWjIuKnFaJq05Kc/MR/HGPoZilwPA4RC1swg3pFzwMRrpmD6VWyrSPCe+mghS+aDFo5Yf3zfD/Kc+SWkT1lH65mLtHYaGkwvSG1zf3EwGz6FgLcqAba8iXoy23hMJocBCs2HVuHs/yYvUcYPoMK4uqELdYpharLNibRkAVz4DXftFofpJJvWuXrjEW0LSziJ3bVtq0he1hk3MGOG+79gusUUSCefRj9Pygc94HgcEmbt7WIttoCEAVdnWwF1Gp3HO5Ha3ioUxjB4qsh8Z6vG9gKsA3xppYH9JuZZeWlXTG1NlNjhzS6/eM9Q/jx9wJrTfdokrlQDnJS9QRvcR+rGrvt3m/g5c/D/T7NBsQ3urjgOTaVdeiwslyWl3L6eZKi9rS6sDdCdNsiFIHDrREi2/myKznp4jt2M32IgVoVmpURyq3rj+hjEAKotli86nMUkyVYPLpAf8kjIT+0Klz4pXLFk5UQF+O4+7byDa+nKzZ51rcqVKLHXrpXenuWUdc72PzwNJUatatpp9tVsGrNKWR8+en3LiNqupbzlQYmzIpOSYaKzPql6/PcVTvYjRgIf3mCTEyHMItbbTdb1tIisqQqP91mLSWlNUYWS0MADbs="
+  on:
+    tags: true
+- skip_cleanup: true
   provider: pypi
   user: wcrichto
   on:
@@ -17,10 +25,3 @@ deploy:
     distributions: bdist_wheel
   password:
     secure: GQJuNBrv6jlrr+T30iaOpEgMLSmirzSU6gL09U8RL/Jj4fBqUi16S8sdu2fbpONynb0xNE/9RwNCyH9HiOHoI870XFZh5DutPv86LcekwTq9L679KxByDF9LUWlXUUiA56w5h62dgZ94zlwFIlbhrD0W7udKFe1NhQ7VSm48Ek4A9eQ7lc13znIo1AndjIfHW0+jpjzaKr5KTQhylp03I0vYsP5Q/2zbL7yx8h2b3IJInOPYpWHVjufOp1s/jPuv9x+dq/e/zDjdv7MUSEaEnX+EOrcL7CBryJBpU5hXhXzz3wOqGxodyRvqRmnNpwvF+DzVb/M3+kO6zoOZ50rUloDkLzQ1JfqLMMAcsmd2d2CnrG48EejAYcOrl2oq0A7835s4komsBrSmG8UCVJdnbrv3s1WmP6JEXpGJQhaEJZSHnAIFkJj9idKTiJvLdZ2s3rGMeXtKvqfH6gqVHM6wrecKQbFCqVeGeoBH5gVnd1BJclbqdsHtvH7NLlTmwkFwj2CIt+NHnJeNCUUBSKj/Wkx5xxaxbM7pnV+6UVzQGPd8YU81nq2KgU/rPRZGTcgaEHqd7+YyfGTQJCArsb2iuhwc4Uc6VpRvyv5gSfUtECK7/tFspl9VQQDX0x1K1n9Qs4MMHbktsBma6A9mr7xIgxnH9+/LJxO0prl+Vk97NGo=
-- skip_cleanup: true
-  provider: npm
-  email: wcrichto@cs.stanford.edu
-  api_key:
-    secure: "qiTfe+Vh+umtGM2yqYEBJXL8WGKdpKq+rITyxLuh+a/zVZ4Rzs3bcfLxolmgl/az4PWjIuKnFaJq05Kc/MR/HGPoZilwPA4RC1swg3pFzwMRrpmD6VWyrSPCe+mghS+aDFo5Yf3zfD/Kc+SWkT1lH65mLtHYaGkwvSG1zf3EwGz6FgLcqAba8iXoy23hMJocBCs2HVuHs/yYvUcYPoMK4uqELdYpharLNibRkAVz4DXftFofpJJvWuXrjEW0LSziJ3bVtq0he1hk3MGOG+79gusUUSCefRj9Pygc94HgcEmbt7WIttoCEAVdnWwF1Gp3HO5Ha3ioUxjB4qsh8Z6vG9gKsA3xppYH9JuZZeWlXTG1NlNjhzS6/eM9Q/jx9wJrTfdokrlQDnJS9QRvcR+rGrvt3m/g5c/D/T7NBsQ3urjgOTaVdeiwslyWl3L6eZKi9rS6sDdCdNsiFIHDrREi2/myKznp4jt2M32IgVoVmpURyq3rj+hjEAKotli86nMUkyVYPLpAf8kjIT+0Klz4pXLFk5UQF+O4+7byDa+nKzZ51rcqVKLHXrpXenuWUdc72PzwNJUatatpp9tVsGrNKWR8+en3LiNqupbzlQYmzIpOSYaKzPql6/PcVTvYjRgIf3mCTEyHMItbbTdb1tIisqQqP91mLSWlNUYWS0MADbs="
-  on:
-    tags: true
