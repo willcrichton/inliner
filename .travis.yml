@@ -1,7 +1,7 @@
 language: node_js
 node_js: 10
 before_install:
-  - pyenv install 3.7 && pyenv global 3.7
+  - pyenv install -s 3.7 && pyenv global 3.7
   - pip3 install --upgrade setuptools
   - git clone https://github.com/berkerpeksag/astor/
   - pushd astor && pip3 install . && popd
