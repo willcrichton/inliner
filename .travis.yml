@@ -8,11 +8,12 @@ before_install:
 install:
 - pushd inliner_jupyter && npm install && npm run prepublishOnly && popd
 script: travis_wait python3.7 setup.py test
+before_deploy: cd inliner_jupyter
+after_deploy: cd ..
 deploy:
 - skip_cleanup: true
   provider: npm
   email: wcrichto@cs.stanford.edu
-  path: inliner_jupyter
   edge: true
   api_key:
     secure: "qiTfe+Vh+umtGM2yqYEBJXL8WGKdpKq+rITyxLuh+a/zVZ4Rzs3bcfLxolmgl/az4PWjIuKnFaJq05Kc/MR/HGPoZilwPA4RC1swg3pFzwMRrpmD6VWyrSPCe+mghS+aDFo5Yf3zfD/Kc+SWkT1lH65mLtHYaGkwvSG1zf3EwGz6FgLcqAba8iXoy23hMJocBCs2HVuHs/yYvUcYPoMK4uqELdYpharLNibRkAVz4DXftFofpJJvWuXrjEW0LSziJ3bVtq0he1hk3MGOG+79gusUUSCefRj9Pygc94HgcEmbt7WIttoCEAVdnWwF1Gp3HO5Ha3ioUxjB4qsh8Z6vG9gKsA3xppYH9JuZZeWlXTG1NlNjhzS6/eM9Q/jx9wJrTfdokrlQDnJS9QRvcR+rGrvt3m/g5c/D/T7NBsQ3urjgOTaVdeiwslyWl3L6eZKi9rS6sDdCdNsiFIHDrREi2/myKznp4jt2M32IgVoVmpURyq3rj+hjEAKotli86nMUkyVYPLpAf8kjIT+0Klz4pXLFk5UQF+O4+7byDa+nKzZ51rcqVKLHXrpXenuWUdc72PzwNJUatatpp9tVsGrNKWR8+en3LiNqupbzlQYmzIpOSYaKzPql6/PcVTvYjRgIf3mCTEyHMItbbTdb1tIisqQqP91mLSWlNUYWS0MADbs="
