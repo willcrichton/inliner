@@ -1,12 +1,12 @@
 language: node_js
 node_js: 10
 before_install:
-  - pyenv install -s 3.7 && pyenv global 3.7
-  - pip3 install --upgrade setuptools
-  - git clone https://github.com/berkerpeksag/astor/
-  - pushd astor && pip3 install . && popd
+- pyenv install -s 3.7 && pyenv global 3.7
+- pip3 install --upgrade setuptools
+- git clone https://github.com/berkerpeksag/astor/
+- pushd astor && pip3 install . && popd
 install:
-  - pushd inliner_jupyter && npm install && npm run prepublishOnly && popd
+- pushd inliner_jupyter && npm install && npm run prepublishOnly && popd
 script: travis_wait python3.7 setup.py test
 deploy:
 - skip_cleanup: true
@@ -21,6 +21,6 @@ deploy:
   provider: npm
   email: wcrichto@cs.stanford.edu
   api_key:
-    secure: UnvI9/Tz2OIAL4ipsEiihHsDkrkPfCB5byNYWTWuL4HzBImdwQnYXw15b+J9xd9TXb8W+ljjzvPrpfpTx9cWARZnkRKfsmHbQfr66JTJekV9SSc73DmDog2348ol5wHc/nj+QOVO1ZRAKmafZKhr73awkRB+318xmx1YhTML5wCoyF694bjgMvAF74v2bHVThf0UexLYnAbobfEv+nc2k1jp5pdy0Rt2GdXm/S+IEAefRY3ep0HbJ411qZ9TtQFCnlXolNZUEKRVSS/sEwFE2/U/gogvDhM5XSa7RaxBEiarHm47kSDme6uc3hT3LkMSG0OTse7Bw/d6VpWLiByHqfsaDWlGsb7Fjty/SDKFWJHkP7FqnCLN0Nnbpaf9VFziOYEHb34Lx5chfRmwjOxu+1W7LSg6ZjVQglwzUwkZKAuclhCygORh2wP+zA4jeUNMd1ZzSNTXETC0pT3K6DwEkH5bCz73NXlneapj0TQy6Fw5VshHEYGz2QYxuBPlCW1C1jo+VdDugTqX0QhQA0fbwPRlgac13Fj0XATGg5ysyOFfUGSX8Hn8jdj9VJAGYszYJezXYww6wwoA4vn+gptYhnq9OzPBYPMiThs5C/2r/M6vTw/b10DDVjNwPpUmqVRMewwsBocDFIx70qssIsvWFqWIulNsLlXXd/HXxmbTmCI=
+    secure: qpbKeao//U2AuJA2uWVNPlVD1XYgk8/23PFrCRHz3ck+NcFOxbDWk2I6YSKwOsMoOmuyxvvYbeX+eehSmm+9gRduVkC48WYtFdZ/AZRNWgUBjsBlD0FdWvGBenssaXsuM2ztywMOlWbe+I3yjniZpleCmeno9LV4bYkv3/xzL8o6pxkUlMlquSpz0usQK34q38TOW5UatsM194bI5eRWuvSllz+hi70o4uY7JeboH5O72Ysn6Dc1PhM8ZwR5uQ7O18Fi6HVKV4hopoJ3QidtOyTsS6zXFM18jbwSB0Mnke5jyURDhffQYuIr/8LqW+UUOcij2bAo+eWUJpMExqA0GYpo5NgbRYPNimrlOutFcKaPF4Y4t55z17T3+wFBslCLhnwo+sxjcKI8OOS6lQdUCxW0kLcMdO+P1y2B+PVT8DL8Fy14L7gKxLepvA/QSyFD4bkoUipJ6RroJxpI7712op9dv/WxfcvuV2IgxKvieaRUOEIfo8DHxG0qmbxG8HYSyd4hU9OtnPDmmoKNGZrqMiPbFvk48KdCcAmcpUqfNZ59kx+pXzNdoCTydhyDhtetKRQsrVn8JRfIDtrfCqy4vjgmL+B+Be6xeZBydzJ1or/WIgD4Vuu0Wn5tYYGxsTOEKXbHdeNfDrHeVFlo/Zu4BIzakUUxfuxnWVg93E6kSCg=
   on:
     tags: true
