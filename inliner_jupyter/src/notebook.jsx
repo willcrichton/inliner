@@ -67,7 +67,7 @@ class NotebookEnv extends Env {
             if (!wait_output) {
               if (reply.content.status == 'error') {
                 console.error(reply);
-                reject(format_trace(reply));
+                reject(this.format_trace(reply.content.traceback));
               } else {
                 resolve(reply);
               }
@@ -79,7 +79,7 @@ class NotebookEnv extends Env {
             if (wait_output) {
               if (reply.msg_type == 'error') {
                 console.error(reply);
-                reject(format_trace(reply));
+                reject(this.format_trace(reply.content.traceback));
               } else {
                 // HACK: if a call both prints to stdout and raises
                 // an exception, then the iopub.output callback receives
@@ -103,6 +103,8 @@ class NotebookInliner extends React.Component {
     show: DEV_MODE,
   }
 
+  margin = 20
+
   constructor(props) {
     super(props);
     this._state = new NotebookState();
@@ -125,14 +127,25 @@ class NotebookInliner extends React.Component {
     ]);
   }
 
+  _compute_dimensions() {
+    const notebook = document.querySelector('#notebook-container');
+    const notebook_rect = notebook.getBoundingClientRect();
+    return {
+      width: (window.innerWidth - notebook_rect.width) / 2 - this.margin * 2,
+      top: notebook_rect.top,
+      right: this.margin
+    }
+  }
+
   render() {
     let style = {
-      display: this.state.show ? 'block' : 'none'
+      display: this.state.show ? 'block' : 'none',
+      ...this._compute_dimensions()
     };
 
-    return <div style={style}>
+    return <div className='inliner-notebook' style={style}>
       <notebook_context.Provider value={this._state}>
-        <Inliner className="inliner-notebook" />
+        <Inliner />
       </notebook_context.Provider>
     </div>;
   }

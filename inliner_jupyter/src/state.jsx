@@ -56,9 +56,10 @@ print(json.dumps(${this.name}.modules()))`;
   }
 
   async sync_targets(targets) {
+    let names = targets.map((t) => t.name);
     var save = `
 import json
-for target in json.loads('${JSON.stringify(targets)}'):
+for target in json.loads('${JSON.stringify(names)}'):
     ${this.name}.add_target(target)`;
 
     return check_call(save);
@@ -91,7 +92,7 @@ let spinner = (target, name, descriptor) => {
 export class InlineState {
   @observable cell_id
   @observable targets = []
-  @observable target_suggestions = new Map();
+  @observable.shallow target_suggestions = new Map();
   @observable program_history = []
 
   constructor(set_cell_text, notebook_state) {
@@ -121,7 +122,8 @@ export class InlineState {
   @spinner
   async refresh_target_suggestions() {
     let suggestions = await this.bridge.target_suggestions();
-    suggestions = _.pickBy(suggestions, (v, k) => this.targets.indexOf(k) == -1);
+    suggestions = _.pickBy(suggestions, (v, k) =>
+      this.targets.filter((t) => t.name == k).length == 0);
     this.target_suggestions.clear();
     this.target_suggestions.merge(suggestions);
   }

@@ -140,9 +140,9 @@ class LabInliner extends React.Component {
   }
 
   render() {
-    return <div >
+    return <div className="inliner-lab">
       <notebook_context.Provider value={this._state}>
-        <Inliner className="inliner-lab" />
+        <Inliner />
       </notebook_context.Provider>
     </div>;
   }

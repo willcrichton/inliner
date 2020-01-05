@@ -8,7 +8,8 @@ import Select from 'react-select';
 
 import {
   InlineState,
-  NotebookState
+  NotebookState,
+  check_call
 } from './state';
 import {
   get_env
@@ -26,9 +27,9 @@ let handle_error = async (operation, state, f) => {
     return ret;
   } catch (error) {
     let last_pass = await state.last_pass();
-    error = `Inliner failed during operation: <code>${operation}</code><br />
+    error = `<div>Inliner failed during operation: <code>${operation}</code><br />
 The most recent pass was: <code>${last_pass}</code><br />
-The Python error was:<pre>${error}</pre>`
+The Python error was:<pre>${error}</pre></div>`;
     get_env().show_error(error);
   }
 }
@@ -49,16 +50,17 @@ let CreateNew = () => {
     handle_error('refresh_target_suggestions', state, () => state.refresh_target_suggestions());
   };
 
-  return <button className="inline-btn inline-create" onClick={on_click}>
-    <i className="fa fa-plus"></i>
+  return <button className="btn btn-default inline-create" onClick={on_click}
+                 title="New inliner cell">
+    <i className="fa fa-plus" />
   </button>;
 };
 
 let Undo = mobx_react.observer(() => {
   let state = React.useContext(notebook_context).current_state;
-  return <button className="inline-btn inline-undo"
+  return <button className="btn btn-default inline-undo" title="Undo"
                  onClick={() => handle_error('undo', state, () => state.undo())}>
-    <i className="fa fa-undo"></i>
+    <i className="fa fa-undo" />
   </button>;
 });
 
@@ -67,24 +69,38 @@ let Targets = mobx_react.observer(() => {
 
   let suggestions =
     Array.from(state.target_suggestions.entries())
-    .map(([mod, src]) => {
+    .map(([mod, meta]) => {
       return {
-        label: `${mod} (${src})`,
+        label: `${mod} (${meta.use})`,
         value: mod
       }
     });
 
+  let open_target = (path) => () => {
+    check_call(`
+import subprocess as sp
+import shlex
+sp.check_call(shlex.split("open 'file://${path}'"))
+    `)
+  };
+
   return <div>
     <div className='inline-targets'>
-      {state.targets.length > 0
-                            ? state.targets.map((name) => <div key={name}>- {name}</div>)
-                            : <span className='inline-targets-missing'>No inline targets added</span>}
+      {(state.targets.length > 0)
+      ? state.targets.map((target) =>
+        <div key={target.name}>
+          <a href='#' onClick={open_target(target.path)}>{target.name}</a>
+        </div>)
+      : <span className='inline-targets-missing'>No inline targets added</span>}
     </div>
     <h3>
       Suggestions
       <button className="inline-refresh-targets"
-              onClick={() => handle_error('refresh_target_suggestions', state, () => state.refresh_target_suggestions())}>
-        <i className="fa fa-refresh"></i>
+              onClick={() => handle_error(
+                'refresh_target_suggestions', state,
+                () => state.refresh_target_suggestions())}
+              title="Refresh suggestions">
+        <i className="fa fa-refresh" />
       </button>
     </h3>
     <div className='inline-target-suggestions'>
@@ -94,8 +110,9 @@ let Targets = mobx_react.observer(() => {
         styles={{menu: base => ({...base, fontFamily: '"Source Sans Pro", monospace'})}}
         placeholder='Suggestions...'
         onChange={(selected) => {
-          let name = selected.value;
-          state.targets.push(name);
+          const name = selected.value;
+          const meta = state.target_suggestions.get(name);
+          state.targets.push({name, ...meta});
           state.target_suggestions.delete(name);
         }} />
     </div>
@@ -110,13 +127,13 @@ let Passes = mobx_react.observer(() => {
 
   return <div className='inline-passes'>
     <div>
-      <button className="inline-btn"
+      <button className="btn btn-default"
               onClick={() => handle_error('autoschedule', state, () => state.autoschedule())}>
         Autoschedule
       </button>
     </div>
     <div>
-      <button className="inline-btn"
+      <button className="btn btn-default"
               onClick={() => handle_error('autoschedule_noinline', state, () => state.autoschedule_noinline())}>
         Autoschedule (no inline)
       </button>
@@ -126,7 +143,7 @@ let Passes = mobx_react.observer(() => {
       pass_name = pass_name.charAt(0).toUpperCase() + pass_name.slice(1);
 
       return <div key={pass}>
-        <button className="inline-btn"
+        <button className='btn btn-default' className="btn btn-default"
                 onClick={() => handle_error(pass, state, () => state.run_pass(pass))}>
           {pass_name}
         </button>
@@ -204,7 +221,9 @@ let DiffButton = mobx_react.observer(() => {
   const [show, setShow] = React.useState(false);
   let state = React.useContext(notebook_context).current_state;
   return <span>
-    <button onClick={() => setShow(!show)}>
+    <button className='btn btn-default'
+            onClick={() => setShow(!show)}
+            title="Show code diff">
       <i className="fa fa-info"></i>
     </button>
     {show ? <DiffPanel state={state} /> : null}
@@ -213,7 +232,7 @@ let DiffButton = mobx_react.observer(() => {
 
 export let Inliner = mobx_react.observer((props) => {
   let state = React.useContext(notebook_context).current_state;
-  return <div className={`inliner ${props.className}`}>
+  return <div className='inliner'>
     <h1>Inliner</h1>
     <CreateNew />
     <Undo />

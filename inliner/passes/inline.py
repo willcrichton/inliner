@@ -31,11 +31,11 @@ class FindCall(ast.NodeTransformer):
 
             fdef = parse_stmt(inspect.getsource(call_obj))
             if len(fdef.decorator_list) == 0:
-                print(
-                    'found closure', a2s(call_expr),
-                    list(
-                        zip(call_obj.__code__.co_freevars,
-                            call_obj.__closure__)))
+                # print(
+                #     'found closure', a2s(call_expr),
+                #     list(
+                #         zip(call_obj.__code__.co_freevars,
+                #             call_obj.__closure__)))
                 self.generic_visit(call_expr)
                 return call_expr
 

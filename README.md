@@ -4,7 +4,7 @@
 ## Setup
 
 ```bash
-pip install inliner
+pip3 install inliner
 
 # Jupyter notebook extension
 jupyter nbextension enable inliner/notebook
@@ -22,7 +22,7 @@ pip3 install -e .
 
 pushd inliner_jupyter
 npm install
-npm run build
+npm run prepublishOnly
 popd
 
 jupyter nbextension install inliner_jupyter --user -s

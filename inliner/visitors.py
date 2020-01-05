@@ -258,7 +258,7 @@ class CollectModules(ast.NodeVisitor):
                 if mod is not None:
                     name = mod.__name__
                     if name not in self.modules:
-                        self.modules[name] = src
+                        self.modules[name] = {'path': mod.__file__, 'use': src}
                 return
 
         super().generic_visit(node)
