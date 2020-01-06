@@ -3,7 +3,16 @@
 [![PyPI version](https://badge.fury.io/py/inliner.svg)](https://badge.fury.io/py/inliner)
 [![npm version](https://badge.fury.io/js/%40wcrichto%2Finliner.svg)](https://badge.fury.io/js/%40wcrichto%2Finliner)
 
-Inliner is a tool to make it easier to understand how a library works through code examples. As a simple example, consider a library that has this function:
+Inliner is a tool that inlines function calls from external libraries in a human-readable way. Inlining can be useful to:
+
+* Understand how individual code paths in a library work, instead of every edge case
+* Work around the limitations of a library by tweaking the inlined source code
+
+The inliner has a Python API as well as an interactive GUI that you can use in Jupyter or JupyterLab notebooks.
+
+## Example
+
+As a simple example, consider a library that has this function:
 
 ```python
 # library.py
@@ -15,15 +24,37 @@ def foo(x, edge_case=False):
 
 # client.py
 from library import foo
-y = foo(2)
+x = 2
+y = foo(x)
+print(y) # 4
 ```
 
-To understand how `foo` works, you would normally have to read the documentation or source code. But here, `foo` has edge cases encoded as parameters with default values. If you only care about the code paths used in your specific example, then you can ignore the unused branches. The inliner can transform this code into:
+To understand how `foo` works, you would normally have to read the documentation or source code. But this can be challenging since e.g. here, `foo` has edge cases encoded as parameters with default values.
+
+If you only care about the code paths used in your specific example, then these edge cases only hinder your understanding. The inliner can turn the client code above into a specialized version removing any code from `library`, for example:
 
 ```python
-# client.py
+def client():
+  from library import foo
+  x = 2
+  y = foo(x)
+  print(y) # 4
+
+from inliner import Inliner
+i = Inliner(client, ['library'])
+i.simplify()
+print(i.make_program())
+```
+
+The `Inliner` class takes the code snippet as input along with a list of modules to inline. Then `simplify` performs a series of inlining and cleaning passes until reaching a fixpoint, then outputting this program:
+
+```python
 x = 2
-y = x * 2
+
+# foo(x)
+foo_ret = x * 2
+y = foo_ret
+print(y)
 ```
 
 ## Setup
