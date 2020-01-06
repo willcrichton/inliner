@@ -253,11 +253,11 @@ class CollectModules(ast.NodeVisitor):
             except Exception:
                 obj = None
 
-            if obj is not None and not inspect.isbuiltin(obj):
+            if obj is not None:
                 mod = inspect.getmodule(obj)
                 if mod is not None:
                     name = mod.__name__
-                    if name not in self.modules:
+                    if name not in self.modules and hasattr(mod, '__file__'):
                         self.modules[name] = {'path': mod.__file__, 'use': src}
                 return
 
