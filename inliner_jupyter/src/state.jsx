@@ -37,7 +37,6 @@ ${this.name} = Inliner(${JSON.stringify(contents)}, [], globls=globals())`;
 import json
 print(json.dumps(${this.name}.modules()))`;
     let outp = await check_output(refresh);
-    console.log(outp);
     return JSON.parse(outp);
   }
 

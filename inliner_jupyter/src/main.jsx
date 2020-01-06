@@ -5,6 +5,7 @@ import 'brace/mode/python';
 import 'brace/theme/monokai';
 import AceDiff from 'ace-diff';
 import Select from 'react-select';
+import _ from 'lodash';
 
 import {
   InlineState,
@@ -75,6 +76,7 @@ let Targets = mobx_react.observer(() => {
         value: mod
       }
     });
+  suggestions = _.sortBy(suggestions, (s) => s.label);
 
   let open_target = (path) => () => {
     check_call(`
@@ -107,7 +109,11 @@ sp.check_call(shlex.split("open 'file://${path}'"))
       <Select
         options={suggestions}
         value=''
-        styles={{menu: base => ({...base, fontFamily: '"Source Sans Pro", monospace'})}}
+        styles={{menu: base => ({
+          ...base,
+          fontFamily: '"Source Sans Pro", monospace',
+          width: '400px',
+          right: 0})}}
         placeholder='Suggestions...'
         onChange={(selected) => {
           const name = selected.value;

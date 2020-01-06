@@ -5,7 +5,7 @@
   "main": "dist/notebook.js",
   "scripts": {
     "build": "webpack",
-    "watch": "webpack -w",
+    "watch": "webpack -w -d",
     "prepublishOnly": "webpack -p"
   },
   "author": "",
