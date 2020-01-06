@@ -49,6 +49,8 @@ class NotebookEnv extends Env {
     let new_cell = Jupyter.notebook.insert_cell_below();
     Jupyter.notebook.select_next();
 
+    new_cell.element.css('background', 'rgb(242, 251, 252)');
+
     this._state.current_cell = new_cell.cell_id;
 
     return {

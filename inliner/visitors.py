@@ -253,7 +253,7 @@ class CollectModules(ast.NodeVisitor):
             except Exception:
                 obj = None
 
-            if obj is not None:
+            if obj is not None and not inspect.isbuiltin(obj):
                 mod = inspect.getmodule(obj)
                 if mod is not None:
                     name = mod.__name__

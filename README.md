@@ -1,15 +1,17 @@
 # Inliner
 [![Build Status](https://travis-ci.com/willcrichton/inliner.svg?branch=master)](https://travis-ci.com/willcrichton/inliner)
+[![PyPI version](https://badge.fury.io/py/inliner.svg)](https://badge.fury.io/py/inliner)
+[![npm version](https://badge.fury.io/js/%40wcrichto%2Finliner.svg)](https://badge.fury.io/js/%40wcrichto%2Finliner)
 
 ## Setup
 
 ```bash
 pip3 install inliner
 
-# Jupyter notebook extension
+# Jupyter notebook extension (optional)
 jupyter nbextension enable inliner/notebook
 
-# JupyterLab extension
+# JupyterLab extension (optional)
 jupyter labextension install @wcrichto/inliner
 ```
 
