@@ -158,7 +158,7 @@ class IsEffectFree(ast.NodeVisitor):
 
         self.ast_whitelist = (ast.Num, ast.Str, ast.Name, ast.NameConstant,
                               ast.Load, ast.List, ast.Bytes, ast.Tuple, ast.Set,
-                              ast.Dict, ast.Attribute, ast.BinOp, ast.UnOp)
+                              ast.Dict, ast.Attribute, ast.BinOp, ast.UnaryOp)
 
     def generic_visit(self, node):
         if isinstance(node, ast.FunctionDef):
