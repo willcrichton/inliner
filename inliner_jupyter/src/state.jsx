@@ -37,6 +37,7 @@ ${this.name} = Inliner(${JSON.stringify(contents)}, [], globls=globals())`;
 import json
 print(json.dumps(${this.name}.modules()))`;
     let outp = await check_output(refresh);
+    console.log(outp);
     return JSON.parse(outp);
   }
 
@@ -151,12 +152,12 @@ export class InlineState {
     return this.bridge.last_pass();
   }
 
-  autoschedule_noinline() {
-    return this.autoschedule(false)
+  simplify_noinline() {
+    return this.simplify(false)
   }
 
   @spinner
-  async autoschedule(inline = true) {
+  async simplify(inline = true) {
     let run_until = async (passes) => {
       while (true) {
         var any_pass = false;

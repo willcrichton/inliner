@@ -128,14 +128,14 @@ let Passes = mobx_react.observer(() => {
   return <div className='inline-passes'>
     <div>
       <button className="btn btn-default"
-              onClick={() => handle_error('autoschedule', state, () => state.autoschedule())}>
-        Autoschedule
+              onClick={() => handle_error('simplify', state, () => state.simplify())}>
+        Simplify
       </button>
     </div>
     <div>
       <button className="btn btn-default"
-              onClick={() => handle_error('autoschedule_noinline', state, () => state.autoschedule_noinline())}>
-        Autoschedule (no inline)
+              onClick={() => handle_error('simplify_noinline', state, () => state.simplify_noinline())}>
+        Simplify (no inline)
       </button>
     </div>
     {passes.map((pass) => {

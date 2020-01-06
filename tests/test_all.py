@@ -33,13 +33,13 @@ def harness(fn, schedule, apis=['api']):
 
     # Then execute with inlining
     try:
-        inliner = Inliner(fn, apis, unwrap_function=True)
+        inliner = Inliner(fn, apis)
         schedule(inliner)
-        prog = inliner.make_program(comments=True)
+        prog = inliner.make_program()
         print(prog)
         inliner.execute()
     except Exception:
-        print(inliner.make_program(comments=True))
+        print(inliner.make_program())
         raise
 
 

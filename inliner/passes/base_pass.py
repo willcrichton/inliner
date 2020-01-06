@@ -26,7 +26,7 @@ class BasePass(ast.NodeTransformer):
                self.tracer_args == inliner._tracer_cache[0]:
                 tracer = inliner._tracer_cache[1]
             else:
-                prog = inliner.make_program()
+                prog = inliner.make_program(comments=False)
                 tracer = Tracer(prog, inliner.globls, **self.tracer_args)
                 tracer.trace()
                 inliner.module = ast.parse(prog)

@@ -101,16 +101,19 @@ class ClassTarget(InlineTarget):
 
 
 class Inliner:
-    def __init__(self, source, targets, globls=None, unwrap_function=False):
-        if not isinstance(source, str):
+    def __init__(self, source, targets, globls=None):
+        source_is_func = inspect.isfunction(source)
+        if source_is_func:
             if globls is None and hasattr(source, '__globals__'):
                 globls = {**source.__globals__, **get_function_locals(source)}
 
             source = inspect.getsource(source)
+        else:
+            assert isinstance(source, str)
 
         mod = ast.parse(textwrap.dedent(source))
-        if len(mod.body) == 1 and isinstance(mod.body[0], ast.FunctionDef) \
-           and unwrap_function:
+        if len(mod.body) == 1 and isinstance(mod.body[0], ast.FunctionDef) and \
+           source_is_func:
             body = mod.body[0].body
         else:
             body = mod.body
@@ -238,7 +241,7 @@ class Inliner:
         self.history.pop()
         self.module = copy.deepcopy(self.history[-1][0])
 
-    def make_program(self, comments=False):
+    def make_program(self, comments=True):
         return a2s(self.module, comments=comments).rstrip()
 
     def fixpoint(self, f):
@@ -254,7 +257,7 @@ class Inliner:
         collector.visit(self.module)
         return collector.modules
 
-    def autoschedule(self):
+    def simplify(self):
         while True:
             if not self.inline():
                 break
@@ -276,4 +279,4 @@ class Inliner:
         self.remove_suffixes()
 
     def execute(self):
-        return Tracer(self.make_program(), self.globls).trace()
+        return Tracer(self.make_program(comments=False), self.globls).trace()
