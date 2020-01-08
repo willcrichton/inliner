@@ -1,3 +1,8 @@
+.introjs-overlay {
+    display: none;
+    pointer-events: none;
+}
+
 .inliner-notebook {
     position: absolute;
     z-index: 100;

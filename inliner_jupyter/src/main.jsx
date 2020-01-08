@@ -6,6 +6,7 @@ import 'brace/theme/monokai';
 import AceDiff from 'ace-diff';
 import Select from 'react-select';
 import _ from 'lodash';
+import introJs from 'intro.js';
 
 import {
   InlineState,
@@ -17,10 +18,11 @@ import {
 } from './env';
 
 import '../css/main.scss';
-import 'ace-diff/dist/ace-diff.min.css'
+import 'ace-diff/dist/ace-diff.min.css';
+import 'intro.js/introjs.css';
 
 export const notebook_context = React.createContext(null);
-
+const intro_context = React.createContext(null);
 
 let handle_error = async (operation, state, f) => {
   try {
@@ -35,8 +37,9 @@ The Python error was:<pre>${error}</pre></div>`;
   }
 }
 
-let CreateNew = () => {
+let CreateNewButton = () => {
   let notebook_state = React.useContext(notebook_context);
+  let intro = React.useContext(intro_context);
 
   let on_click = async () => {
     let {
@@ -48,16 +51,20 @@ let CreateNew = () => {
     await handle_error('create_new', state, () => state.setup(text));
     notebook_state.add_state(state);
 
-    handle_error('refresh_target_suggestions', state, () => state.refresh_target_suggestions());
+    await handle_error('refresh_target_suggestions', state, () => state.refresh_target_suggestions());
+
+    intro.nextStep();
   };
 
   return <button className="btn btn-default inline-create" onClick={on_click}
-                 title="New inliner cell">
+                 title="New inliner cell"
+                 data-intro="Click on the notebook cell you want to expand, then click on this button to create an inliner cell"
+                 data-step="2">
     <i className="fa fa-plus" />
   </button>;
 };
 
-let Undo = mobx_react.observer(() => {
+let UndoButton = mobx_react.observer(() => {
   let state = React.useContext(notebook_context).current_state;
   return <button className="btn btn-default inline-undo" title="Undo"
                  onClick={() => handle_error('undo', state, () => state.undo())}>
@@ -67,9 +74,10 @@ let Undo = mobx_react.observer(() => {
 
 let Targets = mobx_react.observer(() => {
   let state = React.useContext(notebook_context).current_state;
+  let intro = React.useContext(intro_context);
 
   let suggestions =
-    Array.from(state.target_suggestions.entries())
+    Array.from(state ? state.target_suggestions.entries() : [])
     .map(([mod, meta]) => {
       return {
         label: `${mod} (${meta.use})`,
@@ -86,9 +94,11 @@ sp.check_call(shlex.split("open 'file://${path}'"))
     `)
   };
 
+  let select_ref = null;
+
   return <div>
     <div className='inline-targets'>
-      {(state.targets.length > 0)
+      {(state && state.targets.length > 0)
       ? state.targets.map((target) =>
         <div key={target.name}>
           <a href='#' onClick={open_target(target.path)}>{target.name}</a>
@@ -96,17 +106,28 @@ sp.check_call(shlex.split("open 'file://${path}'"))
       : <span className='inline-targets-missing'>No inline targets added</span>}
     </div>
     <h3>
-      Suggestions
+      Suggestions &nbsp;
       <button className="inline-refresh-targets"
+              data-intro="Once you've completed inlining, click here to refresh the set of possible modules to inline"
+              data-step="5"
               onClick={() => handle_error(
                 'refresh_target_suggestions', state,
-                () => state.refresh_target_suggestions())}
+                async () => {
+                  await state.refresh_target_suggestions();
+                  select_ref.select.openMenu();
+                  select_ref.focus();
+                  intro.nextStep();
+                })}
               title="Refresh suggestions">
         <i className="fa fa-refresh" />
       </button>
     </h3>
-    <div className='inline-target-suggestions'>
+    <div className='inline-target-suggestions'
+         data-intro="Pick at least one module that you want to inline"
+         data-step="3"
+         data-position="top">
       <Select
+        ref={(n) => { if (n !== null) { select_ref = n; }}}
         options={suggestions}
         value=''
         styles={{menu: base => ({
@@ -120,6 +141,7 @@ sp.check_call(shlex.split("open 'file://${path}'"))
           const meta = state.target_suggestions.get(name);
           state.targets.push({name, ...meta});
           state.target_suggestions.delete(name);
+          intro.nextStep();
         }} />
     </div>
   </div>;
@@ -127,6 +149,8 @@ sp.check_call(shlex.split("open 'file://${path}'"))
 
 let Passes = mobx_react.observer(() => {
   let state = React.useContext(notebook_context).current_state;
+  let intro = React.useContext(intro_context)
+
   const passes = [
     'inline', 'deadcode', 'copy_propagation', 'clean_imports', 'expand_self', 'lifetimes', 'simplify_varargs', 'remove_suffixes', 'expand_tuples', 'partial_eval', 'array_index'
   ];
@@ -134,7 +158,12 @@ let Passes = mobx_react.observer(() => {
   return <div className='inline-passes'>
     <div>
       <button className="btn btn-default"
-              onClick={() => handle_error('simplify', state, () => state.simplify())}>
+              data-intro="Click 'Simplify' to inline and clean code from the inline targets"
+              data-step="4"
+              onClick={async () => {
+                await handle_error('simplify', state, () => state.simplify());
+                intro.nextStep();
+              }}>
         Simplify
       </button>
     </div>
@@ -149,7 +178,10 @@ let Passes = mobx_react.observer(() => {
       pass_name = pass_name.charAt(0).toUpperCase() + pass_name.slice(1);
 
       return <div key={pass}>
-        <button className='btn btn-default' className="btn btn-default"
+        <button data-intro={pass_name == 'inline' ?
+                            'You can run passes individually, like inlining' : null}
+                data-step="6"
+                className='btn btn-default' className="btn btn-default"
                 onClick={() => handle_error(pass, state, () => state.run_pass(pass))}>
           {pass_name}
         </button>
@@ -230,33 +262,66 @@ let DiffButton = mobx_react.observer(() => {
     <button className='btn btn-default'
             onClick={() => setShow(!show)}
             title="Show code diff">
-      <i className="fa fa-info"></i>
+      <i className="fa fa-exchange"></i>
     </button>
     {show ? <DiffPanel state={state} /> : null}
   </span>;
 });
 
-export let Inliner = mobx_react.observer((props) => {
-  let state = React.useContext(notebook_context).current_state;
-  return <div className='inliner'>
-    <h1>Inliner</h1>
-    <CreateNew />
-    <Undo />
-    <DiffButton />
-    {state
-    ? <div>
-      <hr />
-      <div>
-        <h2>Targets</h2>
-        <Targets />
-      </div>
-      <hr />
-      <div>
-        <h2>Passes</h2>
-        <Passes />
-      </div>
-    </div>
-    : null}
-    <Spinner />
-  </div>;
-});
+let TutorialButton = () => {
+  let intro = React.useContext(intro_context);
+  return <span>
+    <button className='btn btn-default'
+            onClick={() => intro.start()}
+            title='Tutorial'>
+      <i className='fa fa-info' />
+    </button>
+  </span>;
+};
+
+export class Inliner extends React.Component {
+  state = {
+    intro: null
+  }
+
+  componentDidMount() {
+    this.setState({
+      intro: introJs()
+    });
+  }
+
+  render() {
+    return <intro_context.Provider value={this.state.intro}>
+      <notebook_context.Consumer>{(state) =>
+        <mobx_react.Observer>{() =>
+          <div className='inliner'>
+            <h1
+              data-intro="This tutorial will show explain how the inlining tool works."
+              data-step="1">
+              Inliner
+            </h1>
+            <span>
+              <CreateNewButton />
+              <UndoButton />
+              <DiffButton />
+              <TutorialButton />
+            </span>
+            <div style={{display: state.current_state ? 'block' : 'none'}}>
+              <hr />
+              <div>
+                <h2>Targets</h2>
+                <Targets />
+              </div>
+              <hr />
+              <div>
+                <h2>Passes</h2>
+                <Passes />
+              </div>
+            </div>
+            <Spinner />
+          </div>
+        }</mobx_react.Observer>}
+      </notebook_context.Consumer>
+    </intro_context.Provider>;
+  }
+}
