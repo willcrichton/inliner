@@ -1,6 +1,6 @@
 {
   "name": "@wcrichto/inliner",
-  "version": "0.3.8",
+  "version": "0.3.9",
   "description": "",
   "main": "dist/notebook.js",
   "scripts": {

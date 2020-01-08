@@ -49,17 +49,12 @@ class DeadcodePass(BasePass):
         return sum(
             [self.tracer.execed_lines[i] for i in collect_lineno.linenos]) == 0
 
-    def generic_visit(self, node):
-        # Don't delete comments
-        if self._is_comment(node):
-            return node
-
-        # Delete assignments and expression statements that are dead
-        if isinstance(node, (ast.Assign, ast.Expr)) and self._is_dead(node):
+    def visit_Assign(self, node):
+        if self._is_dead(node):
             self.change = True
             return None
 
-        return super().generic_visit(node)
+        return node
 
     def visit_If(self, stmt):
         # TODO: assumes pure conditions
@@ -83,16 +78,20 @@ class DeadcodePass(BasePass):
         self.generic_visit(stmt)
         return stmt
 
-    def visit_Expr(self, stmt):
-        if self._is_comment(stmt):
-            return stmt
+    def visit_Expr(self, node):
+        if self._is_comment(node):
+            return node
 
-        if isinstance(stmt.value, (ast.Name, ast.Str, ast.NameConstant)):
+        if self._is_dead(node):
             self.change = True
             return None
 
-        self.generic_visit(stmt)
-        return stmt
+        # TODO: should generalize this to is effect free
+        if isinstance(node.value, (ast.Name, ast.Str, ast.NameConstant)):
+            self.change = True
+            return None
+
+        return node
 
     def visit_Try(self, stmt):
         if not self._is_dead(stmt.handlers[0]):

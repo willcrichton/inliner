@@ -188,7 +188,10 @@ let Passes = mobx_react.observer(() => {
                             'You can run passes individually, like inlining' : null}
                 data-step="6"
                 className='btn btn-default' className="btn btn-default"
-                onClick={() => handle_error(pass, state, () => state.run_pass(pass))}>
+                onClick={() => handle_error(pass, state, async () => {
+                  const change = await state.run_pass(pass);
+                  console.log('Change:', change);
+                })}>
           {pass_name}
         </button>
       </div>;
