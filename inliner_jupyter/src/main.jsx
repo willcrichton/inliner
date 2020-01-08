@@ -24,6 +24,12 @@ import 'intro.js/introjs.css';
 export const notebook_context = React.createContext(null);
 const intro_context = React.createContext(null);
 
+let intro_step = (intro, n) => {
+  if (intro._currentStep === n - 1) {
+    intro.nextStep();
+  }
+}
+
 let handle_error = async (operation, state, f) => {
   try {
     let ret = await f();
@@ -53,7 +59,7 @@ let CreateNewButton = () => {
 
     await handle_error('refresh_target_suggestions', state, () => state.refresh_target_suggestions());
 
-    intro.nextStep();
+    intro_step(intro, 2);
   };
 
   return <button className="btn btn-default inline-create" onClick={on_click}
@@ -116,7 +122,7 @@ sp.check_call(shlex.split("open 'file://${path}'"))
                   await state.refresh_target_suggestions();
                   select_ref.select.openMenu();
                   select_ref.focus();
-                  intro.nextStep();
+                  intro_step(intro, 5);
                 })}
               title="Refresh suggestions">
         <i className="fa fa-refresh" />
@@ -141,7 +147,7 @@ sp.check_call(shlex.split("open 'file://${path}'"))
           const meta = state.target_suggestions.get(name);
           state.targets.push({name, ...meta});
           state.target_suggestions.delete(name);
-          intro.nextStep();
+          intro_step(intro, 3);
         }} />
     </div>
   </div>;
@@ -162,7 +168,7 @@ let Passes = mobx_react.observer(() => {
               data-step="4"
               onClick={async () => {
                 await handle_error('simplify', state, () => state.simplify());
-                intro.nextStep();
+                intro_step(intro, 4);
               }}>
         Simplify
       </button>
