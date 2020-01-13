@@ -60,6 +60,12 @@ class NotebookEnv extends Env {
     };
   }
 
+  create_new_cell(text) {
+    let new_cell = Jupyter.notebook.insert_cell_below();
+    Jupyter.notebook.select_next();
+    new_cell.set_text(text);
+  }
+
   execute(pysrc, wait_output) {
     pysrc = pysrc.trim();
     return new Promise((resolve, reject) => {

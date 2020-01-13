@@ -12,6 +12,7 @@ import copy
 import re
 from timeit import default_timer as now
 from functools import wraps, partial
+import importlib
 
 from .common import *
 from .visitors import *
@@ -26,7 +27,7 @@ class InlineTarget:
     def __init__(self, target):
         self.target = target
 
-    def should_inline(self, obj):
+    def should_inline(self, obj, globls):
         raise NotImplementedError
 
 
@@ -36,12 +37,12 @@ class ModuleTarget(InlineTarget):
 
     e.g. if target = a.b, then objs defined in a.b or a.b.c will be inlined
     """
-    def should_inline(self, obj):
+    def should_inline(self, obj, globls):
         # Check if object is defined in the same module or a submodule
         # of the target.
         module = inspect.getmodule(obj)
         module_parts = module.__name__.split('.')
-        target_parts = self.target.split('.')
+        target_parts = self.target.__name__.split('.')
         return module_parts[:len(target_parts)] == target_parts
 
 
@@ -49,7 +50,7 @@ class FunctionTarget(InlineTarget):
     """
     Inline exactly this function
     """
-    def should_inline(self, obj):
+    def should_inline(self, obj, globls):
         if inspect.ismethod(obj):
             # Get the class from the instance bound to the method
             cls = obj.__self__.__class__
@@ -74,27 +75,31 @@ class ClassTarget(InlineTarget):
     """
     Inline this class and all of its methods
     """
-    def should_inline(self, obj):
-        # e.g. target()
+    def should_inline(self, obj, globls):
+        # e.g. Target()
         try:
-            constructor = self.target == obj or issubclass(obj, self.target)
+            constructor = self.target == obj or issubclass(self.target, obj)
         except Exception:
             constructor = False
 
-        # e.g. f = target(); f.foo()
-        bound_method = inspect.ismethod(obj) and isinstance(
-            obj.__self__, self.target)
+        # e.g. f = Target(); f.foo()
+        bound_method = inspect.ismethod(obj) and issubclass(
+            self.target, obj.__self__.__class__)
 
-        # e.g. f = target(); target.foo(f)
+        # e.g. f = Target(); Target.foo(f)
         # https://stackoverflow.com/questions/3589311/get-defining-class-of-unbound-method-object-in-python-3
         if inspect.isfunction(obj):
             qname = obj.__qualname__.split('.')
-            unbound_method = len(
-                qname) > 1 and qname[-2] == self.target.__name__
+            try:
+                attr = eval('.'.join(qname[:-1]), globls, globls)
+                unbound_method = issubclass(self.target, attr)
+            except Exception:
+                unbound_method = len(
+                    qname) > 1 and qname[-2] == self.target.__name__
         else:
             unbound_method = False
 
-        # e.g. f = target(); f()
+        # e.g. f = Target(); f()
         dunder_call = isinstance(obj, self.target)
 
         return constructor or bound_method or unbound_method or dunder_call
@@ -122,6 +127,7 @@ class Inliner:
         self.globls = globls.copy() if globls is not None else {}
 
         self.generated_vars = defaultdict(int)
+        self._target_strs = []
         self.targets = []
         for target in targets:
             self.add_target(target)
@@ -132,18 +138,8 @@ class Inliner:
         finder.visit(self.module)
         self.toplevel_vars = finder.names
 
-        def make_pass_name(name):
-            # Split "TheFooPass" into ["The", "Foo", "Pass"]
-            parts = re.findall('.[^A-Z]*', name)
-
-            # Drop "Pass"
-            parts = parts[:-1]
-
-            # Make "the_foo"
-            return '_'.join([s.lower() for s in parts])
-
         for pass_ in PASSES:
-            name = make_pass_name(pass_.__name__)
+            name = self._make_pass_name(pass_.__name__)
             fn = partial(self.run_pass, pass_)
             fn.__name__ = name
             setattr(self, name, fn)
@@ -151,15 +147,34 @@ class Inliner:
         self.profiling_data = defaultdict(list)
         self._tracer_cache = None
 
+    def _make_pass_name(self, name):
+        # Split "TheFooPass" into ["The", "Foo", "Pass"]
+        parts = re.findall('.[^A-Z]*', name)
+
+        # Drop "Pass"
+        parts = parts[:-1]
+
+        # Make "the_foo"
+        return '_'.join([s.lower() for s in parts])
+
     def _make_target(self, target):
         if isinstance(target, str):
-            return ModuleTarget(target)
-        elif inspect.isfunction(target):
-            return FunctionTarget(target)
-        elif inspect.isclass(target):
-            return ClassTarget(target)
-        elif isinstance(target, InlineTarget):
-            return target
+            self._target_strs.append(target)
+            try:
+                target_obj = importlib.import_module(target)
+            except ModuleNotFoundError:
+                parts = target.split('.')
+                mod = importlib.import_module('.'.join(parts[:-1]))
+                target_obj = getattr(mod, parts[-1])
+        else:
+            target_obj = target
+
+        if inspect.ismodule(target_obj):
+            return ModuleTarget(target_obj)
+        elif inspect.isfunction(target_obj):
+            return FunctionTarget(target_obj)
+        elif inspect.isclass(target_obj):
+            return ClassTarget(target_obj)
         else:
             raise Exception(
                 "Can't make inline target from object: {}".format(target))
@@ -193,7 +208,7 @@ class Inliner:
 
         return False
 
-    def should_inline(self, obj):
+    def should_inline(self, obj, globls):
         """
         Checks whether a runtime object is something to be inlined.
         """
@@ -212,7 +227,7 @@ class Inliner:
             return False
 
         for target in self.targets:
-            if target.should_inline(obj):
+            if target.should_inline(obj, globls):
                 return True
 
         return False
@@ -233,7 +248,8 @@ class Inliner:
             self._tracer_cache = None
 
         self.profiling_data[Pass.__name__].append(end)
-        self.history.append((copy.deepcopy(self.module), Pass.__name__))
+        self.history.append(
+            (copy.deepcopy(self.module), self._make_pass_name(Pass.__name__)))
 
         return change
 
@@ -251,11 +267,11 @@ class Inliner:
             pass
         return change
 
-    def modules(self):
+    def inlinables(self):
         tracer = self.execute()
-        collector = CollectModules(tracer.globls)
+        collector = CollectInlinables(tracer.globls)
         collector.visit(self.module)
-        return collector.modules
+        return collector.inlinables
 
     def simplify(self):
         while True:
@@ -280,3 +296,25 @@ class Inliner:
 
     def execute(self):
         return Tracer(self.make_program(comments=False), self.globls).trace()
+
+    def debug(self):
+        f_body = textwrap.indent(self.make_program(), ' ' * 4)
+
+        targets = ', '.join(['"{}"'.format(t) for t in self._target_strs])
+
+        passes = '\n'.join(
+            ['i.{}()'.format(passname) for _, passname in self.history[1:]])
+
+        return '''
+from inliner import Inliner
+
+def f():
+{f_body}
+
+i = Inliner(f, [{targets}])
+{passes}
+
+prog = i.make_program()
+print(prog)
+i.execute()
+        '''.format(f_body=f_body, targets=targets, passes=passes)

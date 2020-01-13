@@ -240,10 +240,10 @@ class RemoveFunctoolsWraps(ast.NodeTransformer):
         return call
 
 
-class CollectModules(ast.NodeVisitor):
+class CollectInlinables(ast.NodeVisitor):
     def __init__(self, globls):
         self.globls = globls
-        self.modules = {}
+        self.inlinables = {}
 
     def generic_visit(self, node):
         if isinstance(node, (ast.Name, ast.Attribute)):
@@ -255,10 +255,23 @@ class CollectModules(ast.NodeVisitor):
 
             if obj is not None:
                 mod = inspect.getmodule(obj)
-                if mod is not None:
-                    name = mod.__name__
-                    if name not in self.modules and hasattr(mod, '__file__'):
-                        self.modules[name] = {'path': mod.__file__, 'use': src}
+                if mod is not None and hasattr(mod, '__file__'):
+
+                    mod_name = mod.__name__
+                    if inspect.ismodule(obj):
+                        name = mod_name
+                    elif inspect.isclass(obj):
+                        name = mod_name + '.' + obj.__name__
+                    elif inspect.isfunction(obj):
+                        name = mod_name + '.' + obj.__name__
+                    else:
+                        name = None
+
+                    if name is not None and name not in self.inlinables:
+                        self.inlinables[name] = {
+                            'path': mod.__file__,
+                            'use': src
+                        }
                 return
 
         super().generic_visit(node)

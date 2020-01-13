@@ -43,11 +43,14 @@ class DeadcodePass(BasePass):
         # excluding comments.
         return len([s for s in stmts if not self._is_comment(s)])
 
-    def _is_dead(self, node):
+    def _exec_count(self, node):
         collect_lineno = CollectLineNumbers()
         collect_lineno.visit(node)
-        return sum(
-            [self.tracer.execed_lines[i] for i in collect_lineno.linenos]) == 0
+        return max(
+            [self.tracer.execed_lines[i] for i in collect_lineno.linenos])
+
+    def _is_dead(self, node):
+        return self._exec_count(node) == 0
 
     def visit_Assign(self, node):
         if self._is_dead(node):
@@ -64,8 +67,11 @@ class DeadcodePass(BasePass):
             return stmt.orelse
         elif self._len_without_comment(stmt.orelse) == 0 or self._is_dead(
                 stmt.orelse[0]):
-            self.change = True
-            return stmt.body
+            test_count = self._exec_count(stmt.test)
+            body_count = self._exec_count(stmt.body[0])
+            if test_count == body_count:
+                self.change = True
+                return stmt.body
 
         self.generic_visit(stmt)
         return stmt

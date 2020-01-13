@@ -100,6 +100,11 @@ sp.check_call(shlex.split("open 'file://${path}'"))
     `)
   };
 
+  let remove_target = (target) => () => {
+    state.targets.remove(target);
+    state.refresh_target_suggestions();
+  };
+
   let select_ref = null;
 
   return <div>
@@ -108,6 +113,9 @@ sp.check_call(shlex.split("open 'file://${path}'"))
       ? state.targets.map((target) =>
         <div key={target.name}>
           <a href='#' onClick={open_target(target.path)}>{target.name}</a>
+          <button className='btn btn-default' onClick={remove_target(target)}>
+            <i className='fa fa-minus' />
+          </button>
         </div>)
       : <span className='inline-targets-missing'>No inline targets added</span>}
     </div>
@@ -288,6 +296,19 @@ let TutorialButton = () => {
   </span>;
 };
 
+let BugButton = mobx_react.observer(() => {
+  let state = React.useContext(notebook_context).current_state;
+  let debug = async () => {
+    const prog = await state.debug();
+    get_env().create_new_cell(prog);
+  };
+  return <span>
+    <button className='btn btn-default' onClick={debug} title='Debug'>
+      <i className='fa fa-bug' />
+    </button>
+  </span>
+});
+
 export class Inliner extends React.Component {
   state = {
     intro: null
@@ -314,6 +335,7 @@ export class Inliner extends React.Component {
               <UndoButton />
               <DiffButton />
               <TutorialButton />
+              <BugButton />
             </span>
             <div style={{display: state.current_state ? 'block' : 'none'}}>
               <hr />

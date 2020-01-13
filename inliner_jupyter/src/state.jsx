@@ -35,7 +35,7 @@ ${this.name} = Inliner(${JSON.stringify(contents)}, [], globls=globals())`;
   async target_suggestions() {
     let refresh = `
 import json
-print(json.dumps(${this.name}.modules()))`;
+print(json.dumps(${this.name}.inlinables()))`;
     let outp = await check_output(refresh);
     return JSON.parse(outp);
   }
@@ -59,6 +59,7 @@ print(json.dumps(${this.name}.modules()))`;
     let names = targets.map((t) => t.name);
     var save = `
 import json
+${this.name}.targets = []
 for target in json.loads('${JSON.stringify(names)}'):
     ${this.name}.add_target(target)`;
 
@@ -67,6 +68,10 @@ for target in json.loads('${JSON.stringify(names)}'):
 
   async last_pass() {
     return check_output(`print(${this.name}.history[-1][1])`);
+  }
+
+  async debug() {
+    return check_output(`print(${this.name}.debug())`);
   }
 }
 
@@ -149,6 +154,10 @@ export class InlineState {
 
   async last_pass() {
     return this.bridge.last_pass();
+  }
+
+  debug() {
+    return this.bridge.debug();
   }
 
   simplify_noinline() {

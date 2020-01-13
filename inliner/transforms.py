@@ -208,7 +208,7 @@ class ContextualTransforms:
         new_stmts.append(
             ast.Assign(targets=[make_name(ret_var)], value=call_expr))
 
-    def _replace_self_super(self, f_ast, cls, call_expr):
+    def _replace_self_super(self, f_ast, cls, call_expr, call_obj, new_stmts):
         # If we don't know what the class is, e.g. in Foo.method(foo), then
         # eval the LHS of the attribute, e.g. Foo here
         if cls is None:
@@ -218,11 +218,21 @@ class ContextualTransforms:
                 cls = eval(a2s(call_expr.func), self.globls,
                            self.globls).__class__
 
+        # Add import for base class
+        base = cls.__bases__[0]
+        file_imports = collect_imports(call_obj)
+        new_stmts.insert(
+            0,
+            self.generate_imports(base.__name__,
+                                  base,
+                                  call_obj=call_obj,
+                                  file_imports=file_imports))
+
         # HACK: we're assuming super() always refers to the first base class,
         # but it actually depends on the specific method being called and the MRO.
         # THIS IS UNSOUND with multiple inheritance (and potentially even with
         # basic subtype polymorphism?)
-        ReplaceSuper(cls.__bases__[0]).visit(f_ast)
+        ReplaceSuper(base).visit(f_ast)
 
         # Replace references to `self.method()` with `Foo.method(self)`, same as
         # expand_constructor()
@@ -441,7 +451,7 @@ class ContextualTransforms:
         # then we need to replace uses of special "self" and "super" keywords.
         args_def = f_ast.args
         if len(args_def.args) > 0 and args_def.args[0].arg == 'self':
-            self._replace_self_super(f_ast, cls, call_expr)
+            self._replace_self_super(f_ast, cls, call_expr, call_obj, new_stmts)
 
         # Add bindings from arguments in the call expression to arguments in function def
         self._bind_arguments(f_ast, call_expr, new_stmts)

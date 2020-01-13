@@ -25,14 +25,22 @@ class FindObjNew(ast.NodeVisitor):
 
 
 class UnsafeToExpand(ast.NodeVisitor):
-    def __init__(self, globls):
+    def __init__(self, inliner, globls):
         self.unsafe = set()
+        self.inliner = inliner
         self.globls = globls
 
     def visit_Call(self, call):
-        for arg in call.args:
-            if isinstance(arg, ast.Name):
-                self.unsafe.add(arg.id)
+        try:
+            func = eval(a2s(call.func), self.globls, self.globls)
+            safe = self.inliner.should_inline(func, self.globls)
+        except Exception:
+            safe = False
+
+        if not safe:
+            for arg in call.args:
+                if isinstance(arg, ast.Name):
+                    self.unsafe.add(arg.id)
 
         self.generic_visit(call)
 
@@ -65,7 +73,7 @@ class ExpandSelfPass(BasePass):
     tracer_args = {}
 
     def visit_Module(self, mod):
-        unsafe = UnsafeToExpand(self.globls)
+        unsafe = UnsafeToExpand(self.inliner, self.globls)
         unsafe.visit(mod)
 
         finder = FindObjNew(self.globls)
@@ -80,7 +88,7 @@ class ExpandSelfPass(BasePass):
             # unfortunately. So we proceed by process of elimination. If
             # an object is neither a class or a module, it must be an object
             # so we register it to be inlined.
-            if self.inliner.should_inline(obj) and \
+            if self.inliner.should_inline(obj, self.globls) and \
                not inspect.isclass(obj) and \
                not inspect.ismodule(obj) and \
                not var in unsafe.unsafe:
