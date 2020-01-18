@@ -226,7 +226,8 @@ class InlinePass(BasePass):
 
         context_expr = stmt.items[0].context_expr
         context = eval(a2s(context_expr), self.globls, self.globls)
-        if self.inliner.should_inline(context, context_expr, self.globls):
+        if isinstance(context_expr, ast.Call) and \
+           self.inliner.should_inline(context_expr.func, context, self.globls):
             self.change = True
             return self.fns.expand_with(stmt)
         else:
