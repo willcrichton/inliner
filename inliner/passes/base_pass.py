@@ -33,6 +33,7 @@ class BasePass(ast.NodeTransformer):
 
             self.tracer = tracer
             self.globls = tracer.globls
+            self.baseline_execs = 1
 
         self.change = False
 
@@ -48,6 +49,20 @@ class BasePass(ast.NodeTransformer):
     def visit_FunctionDef(self, fdef):
         # Don't recurse into inline function definitions
         return fdef
+
+    def visit_For(self, loop):
+        if self.tracer_args is not None:
+            # Track the current number of loop iterations as we descend the AST
+            loop_iters = self.tracer.execed_lines[loop.lineno] - 1
+            if loop_iters > 0:
+                self.baseline_execs *= loop_iters
+                outp = self.generic_visit(loop)
+                self.baseline_execs /= loop_iters
+                return outp
+            else:
+                return self.generic_visit(loop)
+        else:
+            return self.generic_visit(loop)
 
     def run(self, **kwargs):
         self.args = defaultdict(lambda: None)

@@ -1,7 +1,7 @@
 import ast
 import inspect
 
-from ..common import make_name, SEP, compare_ast, parse_expr
+from ..common import make_name, SEP, compare_ast, parse_expr, a2s
 from .base_pass import BasePass
 
 
@@ -31,16 +31,9 @@ class UnsafeToExpand(ast.NodeVisitor):
         self.globls = globls
 
     def visit_Call(self, call):
-        try:
-            func = eval(a2s(call.func), self.globls, self.globls)
-            safe = self.inliner.should_inline(func, self.globls)
-        except Exception:
-            safe = False
-
-        if not safe:
-            for arg in call.args:
-                if isinstance(arg, ast.Name):
-                    self.unsafe.add(arg.id)
+        for arg in call.args:
+            if isinstance(arg, ast.Name):
+                self.unsafe.add(arg.id)
 
         self.generic_visit(call)
 
@@ -88,7 +81,7 @@ class ExpandSelfPass(BasePass):
             # unfortunately. So we proceed by process of elimination. If
             # an object is neither a class or a module, it must be an object
             # so we register it to be inlined.
-            if self.inliner.should_inline(obj, self.globls) and \
+            if self.inliner.should_inline(make_name(var), obj, self.globls) and \
                not inspect.isclass(obj) and \
                not inspect.ismodule(obj) and \
                not var in unsafe.unsafe:

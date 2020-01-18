@@ -64,15 +64,6 @@ class CopyPropagationPass(BasePass):
         # to avoid moving statements outside the block
         return stmt
 
-    def visit_For(self, loop):
-        # Track the current number of loop iterations as we descend the AST
-        loop_iters = self.tracer.execed_lines[loop.lineno] - 1
-        if loop_iters > 0:
-            self.baseline_execs *= loop_iters
-            self.generic_visit(loop)
-            self.baseline_execs /= loop_iters
-        return loop
-
     def visit_Assign(self, stmt):
         if len(stmt.targets) == 1 and \
            isinstance(stmt.targets[0], ast.Name):

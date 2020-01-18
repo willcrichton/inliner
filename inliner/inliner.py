@@ -27,7 +27,7 @@ class InlineTarget:
     def __init__(self, target):
         self.target = target
 
-    def should_inline(self, obj, globls):
+    def should_inline(self, code, obj, globls):
         raise NotImplementedError
 
 
@@ -37,7 +37,7 @@ class ModuleTarget(InlineTarget):
 
     e.g. if target = a.b, then objs defined in a.b or a.b.c will be inlined
     """
-    def should_inline(self, obj, globls):
+    def should_inline(self, code, obj, globls):
         # Check if object is defined in the same module or a submodule
         # of the target.
         module = inspect.getmodule(obj)
@@ -50,7 +50,7 @@ class FunctionTarget(InlineTarget):
     """
     Inline exactly this function
     """
-    def should_inline(self, obj, globls):
+    def should_inline(self, code, obj, globls):
         if inspect.ismethod(obj):
             # Get the class from the instance bound to the method
             cls = obj.__self__.__class__
@@ -75,7 +75,7 @@ class ClassTarget(InlineTarget):
     """
     Inline this class and all of its methods
     """
-    def should_inline(self, obj, globls):
+    def should_inline(self, code, obj, globls):
         # e.g. Target()
         try:
             constructor = self.target == obj or issubclass(self.target, obj)
@@ -89,13 +89,19 @@ class ClassTarget(InlineTarget):
         # e.g. f = Target(); Target.foo(f)
         # https://stackoverflow.com/questions/3589311/get-defining-class-of-unbound-method-object-in-python-3
         if inspect.isfunction(obj):
-            qname = obj.__qualname__.split('.')
-            try:
-                attr = eval('.'.join(qname[:-1]), globls, globls)
-                unbound_method = issubclass(self.target, attr)
-            except Exception:
-                unbound_method = len(
-                    qname) > 1 and qname[-2] == self.target.__name__
+            if isinstance(code, ast.Attribute):
+                try:
+                    cls = eval(a2s(code.value), globls, globls)
+                    unbound_method = issubclass(self.target, cls)
+                except Exception:
+                    unbound_method = False
+            else:
+                qname = obj.__qualname__.split('.')
+                try:
+                    attr = eval('.'.join(qname[:-1]), globls, globls)
+                    unbound_method = issubclass(self.target, attr)
+                except Exception:
+                    unbound_method = False
         else:
             unbound_method = False
 
@@ -208,7 +214,7 @@ class Inliner:
 
         return False
 
-    def should_inline(self, obj, globls):
+    def should_inline(self, code, obj, globls):
         """
         Checks whether a runtime object is something to be inlined.
         """
@@ -227,7 +233,7 @@ class Inliner:
             return False
 
         for target in self.targets:
-            if target.should_inline(obj, globls):
+            if target.should_inline(code, obj, globls):
                 return True
 
         return False
@@ -298,7 +304,7 @@ class Inliner:
         return Tracer(self.make_program(comments=False), self.globls).trace()
 
     def debug(self):
-        f_body = textwrap.indent(self.make_program(), ' ' * 4)
+        f_body = textwrap.indent(a2s(self.history[0][0]).rstrip(), ' ' * 4)
 
         targets = ', '.join(['"{}"'.format(t) for t in self._target_strs])
 

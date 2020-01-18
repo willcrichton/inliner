@@ -1,6 +1,6 @@
 {
   "name": "@wcrichto/inliner",
-  "version": "0.3.9",
+  "version": "0.3.10",
   "description": "",
   "main": "dist/notebook.js",
   "scripts": {
@@ -34,10 +34,12 @@
     "intro.js": "^2.9.3",
     "lodash": "^4.17.15",
     "mobx": "^5.15.1",
+    "mobx-localstorage": "^1.2.0",
     "mobx-react": "^6.1.4",
     "react": "^16.8.4",
     "react-dom": "^16.8.4",
-    "react-select": "^3.0.8"
+    "react-select": "^3.0.8",
+    "serializr": "^1.5.4"
   },
   "jupyterlab": {
     "extension": "dist/lab.js"

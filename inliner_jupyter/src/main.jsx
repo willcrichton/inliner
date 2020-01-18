@@ -1,5 +1,6 @@
 import React from 'react';
 import * as mobx_react from 'mobx-react';
+import * as mobx from 'mobx';
 import 'brace';
 import 'brace/mode/python';
 import 'brace/theme/monokai';
@@ -7,6 +8,7 @@ import AceDiff from 'ace-diff';
 import Select from 'react-select';
 import _ from 'lodash';
 import introJs from 'intro.js';
+import localStorage from 'mobx-localstorage';
 
 import {
   InlineState,
@@ -23,6 +25,9 @@ import 'intro.js/introjs.css';
 
 export const notebook_context = React.createContext(null);
 const intro_context = React.createContext(null);
+
+let dev_mode = () => localStorage.getItem('INLINER_DEV_MODE');
+let toggle_dev_mode = () => localStorage.setItem('INLINER_DEV_MODE', !dev_mode());
 
 let intro_step = (intro, n) => {
   if (intro._currentStep === n - 1) {
@@ -82,8 +87,19 @@ let Targets = mobx_react.observer(() => {
   let state = React.useContext(notebook_context).current_state;
   let intro = React.useContext(intro_context);
 
+  let module_blacklist = ['matplotlib', 'pandas', 'numpy'];
+
   let suggestions =
-    Array.from(state ? state.target_suggestions.entries() : [])
+    Array
+    .from(state ? state.target_suggestions.entries() : [])
+    .filter(([mod, meta]) => {
+      if (!dev_mode()) {
+        const base = mod.split('.')[0];
+        return !module_blacklist.includes(base);
+      } else {
+        return true;
+      }
+    })
     .map(([mod, meta]) => {
       return {
         label: `${mod} (${meta.use})`,
@@ -187,9 +203,10 @@ let Passes = mobx_react.observer(() => {
         Simplify (no inline)
       </button>
     </div>
-    {passes.map((pass) => {
+    {dev_mode()
+    ? passes.map((pass) => {
       let pass_name = pass.replace('_', ' ');
-      pass_name = pass_name.charAt(0).toUpperCase() + pass_name.slice(1);
+    pass_name = pass_name.charAt(0).toUpperCase() + pass_name.slice(1);
 
       return <div key={pass}>
         <button data-intro={pass_name == 'inline' ?
@@ -203,7 +220,8 @@ let Passes = mobx_react.observer(() => {
           {pass_name}
         </button>
       </div>;
-    })}
+    })
+    : null}
   </div>;
 });
 
@@ -309,6 +327,15 @@ let BugButton = mobx_react.observer(() => {
   </span>
 });
 
+let DevButton = mobx_react.observer(() => {
+  return <span>
+    <button className='btn btn-default' title='Dev mode'
+            onClick={toggle_dev_mode}>
+      <i className='fa fa-gears' />
+    </button>
+  </span>;
+});
+
 export class Inliner extends React.Component {
   state = {
     intro: null
@@ -332,10 +359,14 @@ export class Inliner extends React.Component {
             </h1>
             <span>
               <CreateNewButton />
-              <UndoButton />
-              <DiffButton />
               <TutorialButton />
-              <BugButton />
+              <DevButton />
+              {dev_mode()
+              ? <span>
+                <UndoButton />
+                <DiffButton />
+                <BugButton />
+              </span> : null}
             </span>
             <div style={{display: state.current_state ? 'block' : 'none'}}>
               <hr />

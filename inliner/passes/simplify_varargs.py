@@ -76,6 +76,7 @@ class SimplifyVarargsPass(BasePass):
                 keys, vals = unzip([(kw.arg, kw.value)
                                     for kw in stmt.value.keywords])
                 stmt.value = ast.Dict([ast.Str(k) for k in keys], vals)
+
                 self.change = True
                 return self.visit(stmt)
 
@@ -121,7 +122,8 @@ class SimplifyVarargsPass(BasePass):
             self.change = True
 
             for i in range(len(star_obj)):
-                call.args.append(ast.Subscript(value=star_arg, slice=ast.Index(ast.Num(i))))
+                call.args.append(
+                    ast.Subscript(value=star_arg, slice=ast.Index(ast.Num(i))))
 
         kwarg = [(i, kw.value) for i, kw in enumerate(call.keywords)
                  if kw.arg is None]

@@ -67,9 +67,15 @@ class DeadcodePass(BasePass):
             return stmt.orelse
         elif self._len_without_comment(stmt.orelse) == 0 or self._is_dead(
                 stmt.orelse[0]):
-            test_count = self._exec_count(stmt.test)
-            body_count = self._exec_count(stmt.body[0])
-            if test_count == body_count:
+            # TODO: need to check execution counts
+            if False:
+                test_count = self._exec_count(stmt.test)
+                body_count = self._exec_count(stmt.body[0])
+
+                if test_count == body_count:
+                    self.change = True
+                    return stmt.body
+            else:
                 self.change = True
                 return stmt.body
 

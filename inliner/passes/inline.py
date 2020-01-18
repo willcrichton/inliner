@@ -40,7 +40,7 @@ class FindCall(ast.NodeTransformer):
                 return call_expr
 
         if not isinstance(call_expr.func, ast.Call) and \
-           self.inliner.should_inline(call_obj, self.globls):
+           self.inliner.should_inline(call_expr.func, call_obj, self.globls):
             self.call_expr = call_expr
             self.call_obj = call_obj
 
@@ -77,7 +77,7 @@ class FindCall(ast.NodeTransformer):
 
         # if foo should be inlined, and it is an instance of a class,
         # and the class has the attribute, and the attribute is a property
-        if self.inliner.should_inline(prop_obj, self.globls) and \
+        if self.inliner.should_inline(node.value, prop_obj, self.globls) and \
            hasattr(prop_obj, '__class__') and \
            hasattr(prop_obj.__class__, node.attr):
             prop = getattr(prop_obj.__class__, node.attr)
@@ -224,9 +224,9 @@ class InlinePass(BasePass):
     def visit_With(self, stmt):
         self.generic_visit(stmt)
 
-        context = eval(a2s(stmt.items[0].context_expr), self.globls,
-                       self.globls)
-        if self.inliner.should_inline(context, self.globls):
+        context_expr = stmt.items[0].context_expr
+        context = eval(a2s(context_expr), self.globls, self.globls)
+        if self.inliner.should_inline(context, context_expr, self.globls):
             self.change = True
             return self.fns.expand_with(stmt)
         else:
@@ -253,7 +253,7 @@ class InlinePass(BasePass):
             except Exception:
                 return imprt
 
-            if self.inliner.should_inline(obj, self.globls) and \
+            if self.inliner.should_inline(imported_name, obj, self.globls) and \
                not inspect.ismodule(obj) and \
                not inspect.isclass(obj):
 

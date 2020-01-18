@@ -15,7 +15,8 @@ import {
   NotebookState
 } from './state';
 
-const DEV_MODE = true;
+const ALWAYS_OPEN = true;
+//mobx.observable(localStorage.getItem('INLINER_DEV_MODE'));
 
 class NotebookEnv extends Env {
   constructor(state) {
@@ -108,7 +109,7 @@ class NotebookEnv extends Env {
 
 class NotebookInliner extends React.Component {
   state = {
-    show: DEV_MODE,
+    show: ALWAYS_OPEN,
   }
 
   margin = 20
