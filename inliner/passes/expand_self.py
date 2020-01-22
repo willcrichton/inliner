@@ -1,7 +1,7 @@
 import ast
 import inspect
 
-from ..common import make_name, SEP, compare_ast, parse_expr, a2s
+from ..common import make_name, SEP, compare_ast, parse_expr, a2s, obj_to_ast
 from .base_pass import BasePass
 
 
@@ -107,9 +107,13 @@ class ExpandSelfPass(BasePass):
             if name in self.globls:
                 obj = self.globls[name]
                 if id(obj) in self.objs_to_inline:
-                    new_name = self.objs_to_inline[id(obj)]
-                    self.change = True
-                    return make_name(f'{attr.attr}{SEP}{new_name}')
+                    cls = obj.__class__
+                    if hasattr(cls, attr.attr):
+                        return obj_to_ast(getattr(cls, attr.attr))
+                    else:
+                        new_name = self.objs_to_inline[id(obj)]
+                        self.change = True
+                        return make_name(f'{attr.attr}{SEP}{new_name}')
 
         self.generic_visit(attr)
         return attr

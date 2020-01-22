@@ -18,6 +18,7 @@ from .common import *
 from .visitors import *
 from .tracer import *
 from .passes import *
+from .passes.base_pass import CancelPass
 
 
 class InlineTarget:
@@ -243,6 +244,9 @@ class Inliner:
         try:
             pass_ = Pass(self)
             change = pass_.run(**kwargs)
+        except CancelPass:
+            self.module = copy.deepcopy(self.history[-1][0])
+            return False
         except Exception:
             self.module = copy.deepcopy(self.history[-1][0])
             raise
@@ -254,8 +258,9 @@ class Inliner:
             self._tracer_cache = None
 
         self.profiling_data[Pass.__name__].append(end)
-        self.history.append(
-            (copy.deepcopy(self.module), self._make_pass_name(Pass.__name__)))
+        if change:
+            self.history.append((copy.deepcopy(self.module),
+                                 self._make_pass_name(Pass.__name__)))
 
         return change
 

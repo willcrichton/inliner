@@ -286,6 +286,7 @@ class InlinePass(BasePass):
         return super().generic_visit(node)
 
     def _inline(self, stmt):
+        debug = self.args['debug']
         ifexp_finder = FindIfExp(self.inliner)
         ifexp_finder.visit(stmt)
         if ifexp_finder.ifexp is not None:
@@ -312,6 +313,9 @@ class InlinePass(BasePass):
             call_obj = call_finder.call_obj
 
             if inspect.ismethod(call_obj):
+                if debug:
+                    print('method', a2s(call_expr))
+
                 imprt = self.fns.expand_method(call_obj, call_expr, ret_var)
                 if imprt is not None:
                     new_stmts.insert(0, imprt)
@@ -319,6 +323,9 @@ class InlinePass(BasePass):
                     ast.Assign(targets=[make_name(ret_var)], value=call_expr))
 
             elif inspect.isgeneratorfunction(call_obj):
+                if debug:
+                    print('generator', a2s(call_expr))
+
                 new_stmts.extend(
                     self.fns.inline_generator_function(call_obj, call_expr,
                                                        ret_var))
@@ -328,7 +335,7 @@ class InlinePass(BasePass):
                     self.fns.inline_function(call_obj,
                                              call_expr,
                                              ret_var,
-                                             debug=self.args['debug']))
+                                             debug=debug))
 
             elif inspect.isclass(call_obj):
                 new_stmts.extend(

@@ -15,12 +15,17 @@ SEP = '___'
 COMMENT_MARKER = '__comment: '
 
 
+def dedent(s):
+    s = re.sub(r'\\\n', '', s)
+    return textwrap.dedent(s)
+
+
 def parse_stmt(s):
-    return ast.parse(textwrap.dedent(s)).body[0]
+    return ast.parse(dedent(s)).body[0]
 
 
 def parse_expr(s):
-    return parse_stmt(textwrap.dedent(s)).value
+    return parse_stmt(dedent(s)).value
 
 
 class SourceGeneratorWithComments(SourceGenerator):

@@ -4,6 +4,10 @@ from collections import defaultdict
 from ..tracer import Tracer
 
 
+class CancelPass(Exception):
+    pass
+
+
 class RemoveEmptyBlocks(ast.NodeTransformer):
     def generic_visit(self, node):
         super().generic_visit(node)

@@ -2,7 +2,7 @@ import ast
 import copy
 from iterextras import unzip
 
-from .base_pass import BasePass
+from .base_pass import BasePass, CancelPass
 from ..common import a2s, parse_stmt, make_name, SEP
 
 
@@ -25,11 +25,15 @@ class SimplifyVarargsPass(BasePass):
 
     tracer_args = {}
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.inlined_kwarg = set()
+
     def _is_vararg(self, node):
         # HEURISTIC: assume that all dictionaries starting with "args"
         # or "kwargs" are used for keyword arguments
         return isinstance(node, ast.Name) and \
-            (node.id.startswith('args') or node.id.startswith('kwargs'))
+            any([node.id.startswith(prefix) for prefix in ['args', 'kwargs', 'kws']])
 
     def visit_Expr(self, stmt):
         # find expressions like dict.update(...)
@@ -136,6 +140,15 @@ class SimplifyVarargsPass(BasePass):
             except Exception:
                 print('ERROR', a2s(call))
                 raise
+
+            if isinstance(kwarg, ast.Name):
+                # HACK: in case where kwarg is reused and modified,
+                # e.g. kw = {}; foo(**kw); kw['x'] = 1; bar(**kw);
+                # then our compilation strategy is unsound. For now,
+                # just check if **kw is used twice
+                if kwarg.id in self.inlined_kwarg:
+                    raise CancelPass
+                self.inlined_kwarg.add(kwarg.id)
 
             self.change = True
             del call.keywords[i]
