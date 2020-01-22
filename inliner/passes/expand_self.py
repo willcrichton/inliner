@@ -1,7 +1,7 @@
 import ast
 import inspect
 
-from ..common import make_name, SEP, compare_ast, parse_expr, a2s, obj_to_ast
+from ..common import make_name, SEP, compare_ast, parse_expr, a2s, obj_to_ast, ObjConversionException
 from .base_pass import BasePass
 
 
@@ -65,6 +65,10 @@ class ExpandSelfPass(BasePass):
 
     tracer_args = {}
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.attr_assigns = set()
+
     def visit_Module(self, mod):
         unsafe = UnsafeToExpand(self.inliner, self.globls)
         unsafe.visit(mod)
@@ -107,9 +111,25 @@ class ExpandSelfPass(BasePass):
             if name in self.globls:
                 obj = self.globls[name]
                 if id(obj) in self.objs_to_inline:
-                    cls = obj.__class__
-                    if hasattr(cls, attr.attr):
-                        return obj_to_ast(getattr(cls, attr.attr))
+                    attr_obj = getattr(obj, attr.attr)
+
+                    # If trying to expand Foo.method(), that's an error
+                    if inspect.isfunction(attr_obj):
+                        raise Exception(
+                            "Attempted to expand_self with method remaining: {}"
+                            .format(a2s(attr)))
+
+                    # If trying to expand Foo.x where x is only defined on the
+                    # class, not the object, then we need to inline the runtime
+                    # value directly. We check if a property is only defined
+                    # on the class by checking if it's not in __dict__
+                    elif attr.attr not in obj.__dict__:
+                        try:
+                            return obj_to_ast(attr_obj)
+                        except ObjConversionException:
+                            print('Conversion failed for expression', a2s(attr))
+                            raise
+
                     else:
                         new_name = self.objs_to_inline[id(obj)]
                         self.change = True
@@ -119,7 +139,10 @@ class ExpandSelfPass(BasePass):
         return attr
 
     def visit_Assign(self, stmt):
-        if isinstance(stmt.targets[0], ast.Name):
+        if isinstance(stmt.targets[0], ast.Attribute):
+            self.attr_assigns.add(a2s(stmt.targets[0]))
+
+        elif isinstance(stmt.targets[0], ast.Name):
             name = stmt.targets[0].id
             assert name in self.globls
             obj = self.globls[name]
