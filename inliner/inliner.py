@@ -12,104 +12,13 @@ import copy
 import re
 from timeit import default_timer as now
 from functools import wraps, partial
-import importlib
 
 from .common import *
 from .visitors import *
 from .tracer import *
 from .passes import *
+from .targets import *
 from .passes.base_pass import CancelPass
-
-
-class InlineTarget:
-    """
-    A representation of a kind of Python object to be inlined.
-    """
-    def __init__(self, target):
-        self.target = target
-
-    def should_inline(self, code, obj, globls):
-        raise NotImplementedError
-
-
-class ModuleTarget(InlineTarget):
-    """
-    Inline all objects defined within a module.
-
-    e.g. if target = a.b, then objs defined in a.b or a.b.c will be inlined
-    """
-    def should_inline(self, code, obj, globls):
-        # Check if object is defined in the same module or a submodule
-        # of the target.
-        module = inspect.getmodule(obj)
-        module_parts = module.__name__.split('.')
-        target_parts = self.target.__name__.split('.')
-        return module_parts[:len(target_parts)] == target_parts
-
-
-class FunctionTarget(InlineTarget):
-    """
-    Inline exactly this function
-    """
-    def should_inline(self, code, obj, globls):
-        if inspect.ismethod(obj):
-            # Get the class from the instance bound to the method
-            cls = obj.__self__.__class__
-
-            # Check if the class has the target method, and the runtime
-            # object is the same
-            cls_has_method = hasattr(cls, self.target.__name__)
-            if cls_has_method:
-                method_same_as_target = getattr(
-                    cls, self.target.__name__) == self.target
-                return method_same_as_target
-
-            return False
-
-        elif inspect.isfunction(obj):
-            # If it's a normal function, then directly compare for function
-            # equality
-            return obj == self.target
-
-
-class ClassTarget(InlineTarget):
-    """
-    Inline this class and all of its methods
-    """
-    def should_inline(self, code, obj, globls):
-        # e.g. Target()
-        try:
-            constructor = self.target == obj or issubclass(self.target, obj)
-        except Exception:
-            constructor = False
-
-        # e.g. f = Target(); f.foo()
-        bound_method = inspect.ismethod(obj) and issubclass(
-            self.target, obj.__self__.__class__)
-
-        # e.g. f = Target(); Target.foo(f)
-        # https://stackoverflow.com/questions/3589311/get-defining-class-of-unbound-method-object-in-python-3
-        if inspect.isfunction(obj):
-            if isinstance(code, ast.Attribute):
-                try:
-                    cls = eval(a2s(code.value), globls, globls)
-                    unbound_method = issubclass(self.target, cls)
-                except Exception:
-                    unbound_method = False
-            else:
-                qname = obj.__qualname__.split('.')
-                try:
-                    attr = eval('.'.join(qname[:-1]), globls, globls)
-                    unbound_method = issubclass(self.target, attr)
-                except Exception:
-                    unbound_method = False
-        else:
-            unbound_method = False
-
-        # e.g. f = Target(); f()
-        dunder_call = isinstance(obj, self.target)
-
-        return constructor or bound_method or unbound_method or dunder_call
 
 
 class Inliner:
@@ -154,6 +63,9 @@ class Inliner:
         self.profiling_data = defaultdict(list)
         self._tracer_cache = None
 
+        self.num_inlined = 0
+        self.length_inlined = 0
+
     def _make_pass_name(self, name):
         # Split "TheFooPass" into ["The", "Foo", "Pass"]
         parts = re.findall('.[^A-Z]*', name)
@@ -164,31 +76,10 @@ class Inliner:
         # Make "the_foo"
         return '_'.join([s.lower() for s in parts])
 
-    def _make_target(self, target):
+    def add_target(self, target):
         if isinstance(target, str):
             self._target_strs.append(target)
-            try:
-                target_obj = importlib.import_module(target)
-            except ModuleNotFoundError:
-                parts = target.split('.')
-                mod = importlib.import_module('.'.join(parts[:-1]))
-                target_obj = getattr(mod, parts[-1])
-        else:
-            target_obj = target
-
-        if inspect.ismodule(target_obj):
-            return ModuleTarget(target_obj)
-        elif inspect.isfunction(target_obj):
-            return FunctionTarget(target_obj)
-        elif inspect.isclass(target_obj):
-            return ClassTarget(target_obj)
-        else:
-            raise Exception(
-                "Can't make inline target from object: {}".format(target))
-
-    def add_target(self, target):
-        target = self._make_target(target)
-        self.targets.append(target)
+        self.targets.append(make_target(target))
 
     def fresh(self, prefix='var'):
         """
@@ -258,9 +149,8 @@ class Inliner:
             self._tracer_cache = None
 
         self.profiling_data[Pass.__name__].append(end)
-        if change:
-            self.history.append((copy.deepcopy(self.module),
-                                 self._make_pass_name(Pass.__name__)))
+        self.history.append(
+            (copy.deepcopy(self.module), self._make_pass_name(Pass.__name__)))
 
         return change
 
@@ -292,10 +182,10 @@ class Inliner:
 
         while True:
             any_pass = any([
-                self.unread_vars(),
                 self.lifetimes(),
                 self.expand_self(),
                 self.copy_propagation(),
+                self.value_propagation(),
                 self.simplify_varargs(),
                 self.expand_tuples()
             ])

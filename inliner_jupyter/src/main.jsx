@@ -182,7 +182,7 @@ let Passes = mobx_react.observer(() => {
   let intro = React.useContext(intro_context)
 
   const passes = [
-    'inline', 'deadcode', 'copy_propagation', 'clean_imports', 'expand_self', 'lifetimes', 'simplify_varargs', 'remove_suffixes', 'expand_tuples', 'partial_eval', 'array_index'
+    'inline', 'deadcode', 'copy_propagation', 'value_propagation', 'clean_imports', 'expand_self', 'lifetimes', 'simplify_varargs', 'remove_suffixes', 'expand_tuples', 'partial_eval', 'array_index'
   ];
 
   return <div className='inline-passes'>

@@ -7,7 +7,7 @@ import typing
 
 from .visitors import RemoveFunctoolsWraps, ReplaceYield, UsedGlobals, \
     ReplaceSuper, ReplaceSelf, Rename, FindAssignments, ReplaceReturn, \
-    collect_imports
+    FindAssignment, collect_imports
 from .common import a2s, parse_stmt, parse_expr, make_name, obj_to_ast, SEP, COMMENT_MARKER
 
 
@@ -166,6 +166,26 @@ class ContextualTransforms:
         new_stmts.extend(
             self.inline_function(call_obj, call_expr, ret_var, f_ast=f_ast))
         return new_stmts
+
+    def inline_imported_object(self, imprt, source_name, imported_name):
+        if isinstance(imprt, ast.ImportFrom):
+            assert imprt.level == 0
+            exec(f'import {imprt.module}', self.globls, self.globls)
+            mod_obj = eval(imprt.module, self.globls, self.globls)
+        else:
+            assert False, "TODO"
+
+        mod_ast = ast.parse(open(inspect.getsourcefile(mod_obj)).read())
+        finder = FindAssignment(source_name)
+        finder.visit(mod_ast)
+
+        if finder.assgn is not None:
+            file_imports = collect_imports(mod_obj)
+            assgn = ast.Assign(targets=[make_name(imported_name)],
+                               value=finder.assgn)
+            return list(file_imports.values()) + [assgn]
+        else:
+            assert False, "TODO"
 
     def _expand_decorators(self, new_stmts, f_ast, call_expr, call_obj,
                            ret_var):
@@ -419,6 +439,7 @@ class ContextualTransforms:
             # We have to "dedent" it if the source code is not at the top level
             # (e.g. a class method)
             f_source = textwrap.dedent(f_source)
+            self.inliner.length_inlined += len(f_source.split('\n'))
 
             # Then parse the function into an AST
             f_ast = parse_stmt(f_source)
@@ -433,8 +454,9 @@ class ContextualTransforms:
         assert len(decorators) <= 1
         if len(decorators) == 1:
             d = decorators[0]
-            builtin_decorator = (isinstance(d, ast.Name)
-                                 and (d.id in ['property', 'classmethod']))
+            builtin_decorator = (
+                isinstance(d, ast.Name)
+                and (d.id in ['property', 'classmethod', 'staticmethod']))
             derived_decorator = (isinstance(d, ast.Attribute)
                                  and (d.attr in ['setter']))
             if not (builtin_decorator or derived_decorator):

@@ -9,7 +9,7 @@ from .lifetimes import LifetimesPass
 from .partial_eval import PartialEvalPass
 from .remove_suffixes import RemoveSuffixesPass
 from .simplify_varargs import SimplifyVarargsPass
-from .unread_vars import UnreadVarsPass
+from .value_propagation import ValuePropagationPass
 
 PASSES = [
     ArrayIndexPass,
@@ -23,5 +23,5 @@ PASSES = [
     PartialEvalPass,
     RemoveSuffixesPass,
     SimplifyVarargsPass,
-    UnreadVarsPass
+    ValuePropagationPass
 ] # yapf: disable

@@ -14,9 +14,9 @@ def basic_schedule(inliner):
     while True:
         any_pass = any([
             inliner.expand_self(),
-            inliner.unread_vars(),
             inliner.lifetimes(),
             inliner.copy_propagation(),
+            inliner.value_propagation(),
             inliner.simplify_varargs(),
             inliner.expand_tuples()
         ])
@@ -131,6 +131,14 @@ def test_with():
         assert c.n == 3
 
     harness(with_, basic_schedule)
+
+
+def test_multiassign():
+    def multiassign():
+        import api
+        assert api.multiassign() == 2
+
+    harness(multiassign, basic_schedule)
 
 
 def test_seaborn_boxplot():

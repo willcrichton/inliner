@@ -15,6 +15,7 @@ class FindCall(ast.NodeTransformer):
         self.ret_var = None
 
     def visit_Call(self, call_expr):
+
         # for example, self.foo(1)
         try:
             # get the runtime object for function self.foo
@@ -29,15 +30,16 @@ class FindCall(ast.NodeTransformer):
            hasattr(call_obj, '__closure__') and \
            call_obj.__closure__ is not None:
 
-            fdef = parse_stmt(inspect.getsource(call_obj))
-            if len(fdef.decorator_list) == 0:
-                # print(
-                #     'found closure', a2s(call_expr),
-                #     list(
-                #         zip(call_obj.__code__.co_freevars,
-                #             call_obj.__closure__)))
-                self.generic_visit(call_expr)
-                return call_expr
+            closure = dict(
+                zip(call_obj.__code__.co_freevars, call_obj.__closure__))
+            if not (len(closure) == 1
+                    and list(closure.keys())[0] == '__class__'):
+
+                fdef = parse_stmt(inspect.getsource(call_obj))
+                if len(fdef.decorator_list) == 0:
+                    print('found closure', a2s(call_expr),
+                          self.generic_visit(call_expr))
+                    return call_expr
 
         if not isinstance(call_expr.func, ast.Call) and \
            self.inliner.should_inline(call_expr.func, call_obj, self.globls):
@@ -164,18 +166,6 @@ class FindIfExp(ast.NodeTransformer):
         return make_name(self.ret_var)
 
 
-class FindAssignment(ast.NodeVisitor):
-    def __init__(self, var):
-        self.assgn = None
-        self.var = var
-
-    def visit_Assign(self, stmt):
-        if len(stmt.targets) == 1 and \
-           isinstance(stmt.targets[0], ast.Name) and \
-           stmt.targets[0].id == self.var:
-            self.assgn = stmt.value
-
-
 class InlinePass(BasePass):
     """
     Primary inlining functionality. Looks for inline-able syntax objects
@@ -256,23 +246,10 @@ class InlinePass(BasePass):
 
             if self.inliner.should_inline(imported_name, obj, self.globls) and \
                not inspect.ismodule(obj) and \
-               not inspect.isclass(obj):
-
-                if isinstance(imprt, ast.ImportFrom):
-                    assert imprt.level == 0
-                    exec(f'import {imprt.module}', self.globls, self.globls)
-                    mod_obj = eval(imprt.module, self.globls, self.globls)
-                else:
-                    assert False, "TODO"
-
-                mod_ast = ast.parse(open(inspect.getsourcefile(mod_obj)).read())
-                finder = FindAssignment(source_name)
-                finder.visit(mod_ast)
-
-                # TODO: generate for finder.assgn
-                if finder.assgn is not None:
-                    return ast.Assign(targets=[make_name(imported_name)],
-                                      value=finder.assgn)
+               not inspect.isclass(obj) and \
+               False:
+                return self.fns.inline_imported_object(imprt, source_name,
+                                                       imported_name)
 
         return imprt
 
@@ -331,6 +308,9 @@ class InlinePass(BasePass):
                                                        ret_var))
 
             elif inspect.isfunction(call_obj):
+                if debug:
+                    print('function', a2s(call_expr))
+
                 new_stmts.extend(
                     self.fns.inline_function(call_obj,
                                              call_expr,
@@ -338,10 +318,16 @@ class InlinePass(BasePass):
                                              debug=debug))
 
             elif inspect.isclass(call_obj):
+                if debug:
+                    print('class', a2s(call_expr))
+
                 new_stmts.extend(
                     self.fns.inline_constructor(call_obj, call_expr, ret_var))
 
             elif hasattr(call_obj, '__call__'):
+                if debug:
+                    print('call', a2s(call_expr))
+
                 self.fns.expand_callable(call_expr)
                 new_stmts.append(
                     ast.Assign(targets=[make_name(ret_var)], value=call_expr))
@@ -350,6 +336,7 @@ class InlinePass(BasePass):
                 print(call_obj, type(call_obj), a2s(call_expr).strip())
                 raise NotYetImplemented
 
+            self.inliner.num_inlined += 1
             self.change = True
 
         new_stmts.append(stmt)

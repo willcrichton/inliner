@@ -3,8 +3,10 @@ import sys
 from collections import defaultdict
 from tempfile import NamedTemporaryFile
 from .common import try_copy
+from timeit import default_timer as now
 
 FILE_PREFIX = 'inline'
+MAX_COPY_SIZE = 128
 
 
 def compile_and_exec(code, globls):
@@ -26,17 +28,10 @@ class FrameAnalyzer:
         self.frame = frame
         self.code = frame.f_code
         self.bytecode = dis.Bytecode(self.code)
-        self.cur_i = self.frame.f_lasti
+        self._instr_lookup = {i.offset: i for i in self.bytecode}
 
     def current_instr(self):
-        for i in self.bytecode:
-            if i.offset == self.cur_i:
-                return i
-
-    def next_instr(self):
-        for i in self.bytecode:
-            if i.offset > self.cur_i:
-                return i
+        return self._instr_lookup[self.frame.f_lasti]
 
 
 class ValueUnknown:
@@ -44,6 +39,8 @@ class ValueUnknown:
 
 
 class Tracer:
+    store_instrs = set(['STORE_NAME', 'STORE_FAST', 'STORE_GLOBAL'])
+    read_instrs = set(['LOAD_NAME', 'LOAD_FAST', 'LOAD_GLOBAL'])
     """
     Executes a program and collects information about loads, stores, and executed lines.
     """
@@ -61,8 +58,10 @@ class Tracer:
         self.trace_opcodes = trace_opcodes
         self.trace_lines = trace_lines
         self._last_store = None
+        self._frame_analyzer = None
         self.debug = debug
-        self.globls = globls.copy() #{k: try_copy(v) for k, v in globls.items()}
+        self.globls = globls.copy(
+        )  #{k: try_copy(v) for k, v in globls.items()}
 
     def get_value(self, frame, name):
         # Lookup value in relevant store
@@ -71,23 +70,20 @@ class Tracer:
         elif name in frame.f_globals:
             value = frame.f_globals[name]
         else:
-            value = ValueUnknown()
+            return ValueUnknown()
 
-        # Attempt to copy the value if possible
-        return try_copy(value)
+        if isinstance(value, (int, float, str)):
+            return try_copy(value)
+        else:
+            return ValueUnknown()
 
     def _trace_fn(self, frame, event, arg):
-        if self.trace_opcodes and \
-           frame.f_code.co_filename == self._fname:
-            frame.f_trace_opcodes = True
-        else:
-            frame.f_trace_opcodes = False
+        if frame.f_code.co_filename != self._fname:
+            frame.f_trace = None
+            return
 
-        if self.trace_lines and \
-           frame.f_code.co_filename == self._fname:
-            frame.f_trace_lines = True
-        else:
-            frame.f_trace_lines = False
+        frame.f_trace_opcodes = self.trace_opcodes
+        frame.f_trace_lines = self.trace_lines
 
         if event == 'opcode':
             # The effect of a store appearing in f_locals/globals seems
@@ -98,20 +94,23 @@ class Tracer:
                 self.stores[name].append((self.get_value(frame, name), lineno))
                 self._last_store = None
 
-            instr = FrameAnalyzer(frame).current_instr()
+            if self._frame_analyzer is None:
+                self._frame_analyzer = FrameAnalyzer(frame)
+
+            instr = self._frame_analyzer.current_instr()
             name = instr.argval
 
             if self.debug:
                 print(instr.opname, str(instr.argval)[:30])
 
-            if instr.opname in ['STORE_NAME', 'STORE_FAST', 'STORE_GLOBAL']:
+            if instr.opname in self.store_instrs:
                 self._last_store = (name, frame.f_lineno)
                 self.set_count[name] += 1
-            elif instr.opname in ['LOAD_NAME', 'LOAD_FAST', 'LOAD_GLOBAL']:
+            elif instr.opname in self.read_instrs:
                 self.reads[name].append((self.get_value(frame,
                                                         name), frame.f_lineno))
 
-        elif event == 'line' and frame.f_code.co_filename == self._fname:
+        elif event == 'line':
             self.execed_lines[frame.f_lineno] += 1
 
         return self._trace_fn

@@ -48,6 +48,15 @@ class Replace(ast.NodeTransformer):
         else:
             return name
 
+    def visit_Assign(self, assign):
+        # If we're replacing e.g. x with None, then have to avoid
+        # changing "x = 1" to "None = 1"
+        if isinstance(self.value, ast.Name):
+            return self.generic_visit(assign)
+        else:
+            assign.value = self.visit(assign.value)
+            return assign
+
 
 class FindAssignments(ast.NodeVisitor):
     def __init__(self):
@@ -88,7 +97,9 @@ class ReplaceReturn(ast.NodeTransformer):
 
     def generic_visit(self, node):
         for field, old_value in ast.iter_fields(node):
-            if isinstance(old_value, list):
+            # if we're iterating over assignment targets, don't try to introduce
+            # if statements between targets
+            if isinstance(old_value, list) and field not in ['targets']:
                 new_values = []
                 for i, cur_value in enumerate(old_value):
                     if isinstance(cur_value, ast.AST):
@@ -255,6 +266,7 @@ class CollectInlinables(ast.NodeVisitor):
 
             if obj is not None:
                 mod = inspect.getmodule(obj)
+
                 if mod is not None and hasattr(mod, '__file__'):
 
                     mod_name = mod.__name__
@@ -263,7 +275,13 @@ class CollectInlinables(ast.NodeVisitor):
                     elif inspect.isclass(obj):
                         name = mod_name + '.' + obj.__name__
                     elif inspect.isfunction(obj):
-                        name = mod_name + '.' + obj.__name__
+                        if '.' in obj.__qualname__:
+                            name = mod_name + '.' + obj.__qualname__.split(
+                                '.')[0]
+                        else:
+                            name = mod_name + '.' + obj.__name__
+                    elif inspect.ismethod(obj):
+                        name = mod_name + '.' + obj.__self__.__class__.__name__
                     else:
                         name = None
 
@@ -275,3 +293,15 @@ class CollectInlinables(ast.NodeVisitor):
                 return
 
         super().generic_visit(node)
+
+
+class FindAssignment(ast.NodeVisitor):
+    def __init__(self, var):
+        self.assgn = None
+        self.var = var
+
+    def visit_Assign(self, stmt):
+        if len(stmt.targets) == 1 and \
+           isinstance(stmt.targets[0], ast.Name) and \
+           stmt.targets[0].id == self.var:
+            self.assgn = stmt.value

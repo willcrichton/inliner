@@ -16,8 +16,19 @@ COMMENT_MARKER = '__comment: '
 
 
 def dedent(s):
-    s = re.sub(r'\\\n', '', s)
-    return textwrap.dedent(s)
+    no_backtick = re.sub(r'\\\n', '', s)
+
+    # If a program has lines that don't match the top-level indent, e.g.
+    # because of a multiline string, then indent the string to match top-level
+    lines = no_backtick.strip('\n').split('\n')
+    indent = textwrap._leading_whitespace_re.search(lines[0])
+    assert indent is not None, no_backtick
+    indent = indent.group(1)
+    for i, line in enumerate(lines):
+        if not line.startswith(indent):
+            lines[i] = indent + line
+
+    return textwrap.dedent('\n'.join(lines))
 
 
 def parse_stmt(s):
@@ -158,12 +169,16 @@ class IsEffectFree(ast.NodeVisitor):
         self.effect_free = True
 
         # HACK: how can we actually detect purity?
-        func_whitelist = ['str', 'utils.to_utf8', 'LooseVersion']
+        func_whitelist = [
+            'str', 'tuple', 'list', 'int', 'float', 'utils.to_utf8',
+            'LooseVersion'
+        ]
         self.func_whitelist = [parse_expr(s) for s in func_whitelist]
 
         self.ast_whitelist = (ast.Num, ast.Str, ast.Name, ast.NameConstant,
                               ast.Load, ast.List, ast.Bytes, ast.Tuple, ast.Set,
-                              ast.Dict, ast.Attribute, ast.BinOp, ast.UnaryOp)
+                              ast.Dict, ast.Attribute, ast.BinOp, ast.UnaryOp,
+                              ast.Index, ast.Subscript, ast.Slice)
 
     def generic_visit(self, node):
         if isinstance(node, ast.FunctionDef):

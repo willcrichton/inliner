@@ -77,3 +77,8 @@ class Context:
 
     def __exit__(self, *args):
         self.n += 1
+
+
+def multiassign():
+    x = y = 1
+    return x + y

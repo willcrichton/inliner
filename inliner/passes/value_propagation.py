@@ -2,8 +2,10 @@ import ast
 from .propagation_pass import PropagationPass
 from ..common import robust_eq, is_effect_free, tree_size
 
+MAX_TREESIZE = 10  # TODO: good value for this?
 
-class CopyPropagationPass(PropagationPass):
+
+class ValuePropagationPass(PropagationPass):
     """
     Copies values read once into their point of use.
 
@@ -55,39 +57,46 @@ class CopyPropagationPass(PropagationPass):
         super().__init__(inliner)
         self.assignments = []
 
+    def visit_With(self, stmt):
+        # For now, don't do any propagation on assignments within with blocks
+        # to avoid moving statements outside the block
+        return stmt
+
     def visit_Assign(self, stmt):
         if len(stmt.targets) == 1 and \
-           isinstance(stmt.targets[0], ast.Name) and \
-           isinstance(stmt.value, ast.Name):
+           isinstance(stmt.targets[0], ast.Name):
             k = stmt.targets[0].id
 
-            is_ssa = self.tracer.set_count[k] == self.baseline_execs
-            not_in_orig_prog = k not in self.inliner.toplevel_vars
+            # Attempt to determine whether the variable's value changed
+            # during tracing. robust_eq is... marginally robust.
+            try:
+                val_eq = len(self.tracer.reads[k]) == 0 or \
+                   bool(robust_eq(self.tracer.reads[k][0][0],
+                                  self.tracer.reads[k][-1][0]))
+            except Exception as e:
+                # TODO: do some better kind of logging here
+                print('WARNING: could not compare for equality on key `{}`:'.
+                      format(k))
+                print('Inital', str(self.tracer.reads[k][0][0])[:100])
+                print('Final', str(self.tracer.reads[k][-1][0])[:100])
+                print(e)
+                print('=' * 30)
 
-            if is_ssa and not_in_orig_prog:
+                val_eq = False
+
+            var_is_ssa = self.tracer.set_count[k] == self.baseline_execs
+            can_propagate_value = val_eq or \
+                len(self.tracer.reads[k]) == self.baseline_execs
+            value_is_pure = is_effect_free(stmt.value)
+            value_not_name = not isinstance(stmt.value, ast.Name)
+            can_propagate_var = var_is_ssa and can_propagate_value and value_is_pure \
+                and value_not_name
+
+            should_propagate_var = k not in self.inliner.toplevel_vars and \
+                tree_size(stmt.value) <= MAX_TREESIZE
+
+            if can_propagate_var and should_propagate_var:
                 self.assignments.append((k, stmt.value))
                 return None
 
         return stmt
-
-    def after_visit(self, mod):
-        # Once we have collected the copyable assignments, go through and
-        # replace every usage of them
-        for i, (name, value) in enumerate(self.assignments):
-            replacer = Replace(name, value)
-            replacer.visit(mod)
-
-            # Have to update not just the main AST, but also any copyable
-            # assignments that might reference copies. For example:
-            #
-            # x = 1
-            # y = x
-            # z = y
-            #
-            # After copying x, self.assignments will still have y = x, so
-            # a naive copy of y = x into z will then produce the program z = x
-            # with no definition of x.
-            for j, (name2, value2) in enumerate(self.assignments[i + 1:]):
-                self.assignments[i + 1 + j] = (name2, replacer.visit(value2))
-
-        self.change = len(self.assignments) > 0
