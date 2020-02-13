@@ -73,6 +73,16 @@ for target in json.loads('${JSON.stringify(names)}'):
   async debug() {
     return check_output(`print(${this.name}.debug())`);
   }
+
+  async get_object_path(src) {
+    const out = await check_output(`
+tracer = ${this.name}.execute();
+exec("""
+from inliner.visitors import object_path
+print(object_path(${src}))
+    """, tracer.globls)`);
+    return out.trim();
+  }
 }
 
 let spinner = (target, name, descriptor) => {
@@ -160,6 +170,10 @@ export class InlineState {
     return this.bridge.debug();
   }
 
+  get_object_path(src) {
+    return this.bridge.get_object_path(src);
+  }
+
   simplify_noinline() {
     return this.simplify(false)
   }
@@ -195,6 +209,7 @@ export class InlineState {
     await run_until(passes);
 
     await this.run_pass('remove_suffixes');
+    await this.refresh_target_suggestions();
   }
 }
 

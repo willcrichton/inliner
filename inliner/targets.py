@@ -101,8 +101,13 @@ def make_target(target):
             target_obj = importlib.import_module(target)
         except ModuleNotFoundError:
             parts = target.split('.')
-            mod = importlib.import_module('.'.join(parts[:-1]))
-            target_obj = getattr(mod, parts[-1])
+
+            try:
+                mod = importlib.import_module('.'.join(parts[:-1]))
+                target_obj = getattr(mod, parts[-1])
+            except ModuleNotFoundError:
+                mod = importlib.import_module('.'.join(parts[:-2]))
+                target_obj = getattr(getattr(mod, parts[-2]), parts[-1])
     else:
         target_obj = target
 

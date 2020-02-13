@@ -195,6 +195,13 @@ class Inliner:
         self.clean_imports()
         self.remove_suffixes()
 
+    def stats(self):
+        return {
+            'functions_inlined': self.num_inlined,
+            'orig_lines': self.length_inlined,
+            'cur_lines': len(self.make_program().split('\n'))
+        }
+
     def execute(self):
         return Tracer(self.make_program(comments=False), self.globls).trace()
 

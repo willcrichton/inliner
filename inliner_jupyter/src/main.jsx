@@ -151,6 +151,14 @@ sp.check_call(shlex.split("open 'file://${path}'"))
               title="Refresh suggestions">
         <i className="fa fa-refresh" />
       </button>
+      <button className=''
+              onClick={async () => {
+                const text = get_env().get_selected_text();
+                const path = await state.get_object_path(text);
+                state.targets.push({name: path, path: text});
+              }}>
+        <i className='fa fa-copy' />
+      </button>
     </h3>
     <div className='inline-target-suggestions'
          data-intro="Pick at least one module that you want to inline"

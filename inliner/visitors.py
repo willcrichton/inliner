@@ -251,6 +251,28 @@ class RemoveFunctoolsWraps(ast.NodeTransformer):
         return call
 
 
+def object_path(obj):
+    mod = inspect.getmodule(obj)
+
+    if mod is not None and hasattr(mod, '__file__'):
+        mod_name = mod.__name__
+        if inspect.ismodule(obj):
+            name = mod_name
+        elif inspect.isclass(obj):
+            name = mod_name + '.' + obj.__name__
+        elif inspect.isfunction(obj):
+            name = mod_name + '.' + obj.__qualname__
+        elif inspect.ismethod(obj):
+            #name = mod_name + '.' + obj.__self__.__class__.__name__
+            name = mod_name + '.' + obj.__qualname__
+        else:
+            name = None
+
+        return name
+
+    return None
+
+
 class CollectInlinables(ast.NodeVisitor):
     def __init__(self, globls):
         self.globls = globls
@@ -265,32 +287,11 @@ class CollectInlinables(ast.NodeVisitor):
                 obj = None
 
             if obj is not None:
+                name = object_path(obj)
                 mod = inspect.getmodule(obj)
-
-                if mod is not None and hasattr(mod, '__file__'):
-
-                    mod_name = mod.__name__
-                    if inspect.ismodule(obj):
-                        name = mod_name
-                    elif inspect.isclass(obj):
-                        name = mod_name + '.' + obj.__name__
-                    elif inspect.isfunction(obj):
-                        if '.' in obj.__qualname__:
-                            name = mod_name + '.' + obj.__qualname__.split(
-                                '.')[0]
-                        else:
-                            name = mod_name + '.' + obj.__name__
-                    elif inspect.ismethod(obj):
-                        name = mod_name + '.' + obj.__self__.__class__.__name__
-                    else:
-                        name = None
-
-                    if name is not None and name not in self.inlinables:
-                        self.inlinables[name] = {
-                            'path': mod.__file__,
-                            'use': src
-                        }
-                return
+                if name is not None and name not in self.inlinables:
+                    self.inlinables[name] = {'path': mod.__file__, 'use': src}
+                return None
 
         super().generic_visit(node)
 

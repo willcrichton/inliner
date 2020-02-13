@@ -85,8 +85,9 @@ class ValuePropagationPass(PropagationPass):
                 val_eq = False
 
             var_is_ssa = self.tracer.set_count[k] == self.baseline_execs
-            can_propagate_value = val_eq or \
-                len(self.tracer.reads[k]) == self.baseline_execs
+            # TODO: use val_eq? check if variable use syntactically occurs once in program?
+            can_propagate_value = len(
+                self.tracer.reads[k]) == self.baseline_execs
             value_is_pure = is_effect_free(stmt.value)
             value_not_name = not isinstance(stmt.value, ast.Name)
             can_propagate_var = var_is_ssa and can_propagate_value and value_is_pure \

@@ -64,6 +64,8 @@ class Tracer:
         )  #{k: try_copy(v) for k, v in globls.items()}
 
     def get_value(self, frame, name):
+        return None
+
         # Lookup value in relevant store
         if name in frame.f_locals:
             value = frame.f_locals[name]
