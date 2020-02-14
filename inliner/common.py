@@ -10,9 +10,39 @@ import math
 from astpretty import pprint as pprintast
 import copy
 import inspect
+import pickle, base64
 
 SEP = '___'
-COMMENT_MARKER = '__comment: '
+COMMENT_MARKER = '__inliner: '
+
+
+class Comment:
+    def to_stmt(self):
+        comment = COMMENT_MARKER + base64.b64encode(
+            pickle.dumps(self)).decode('utf-8')
+        return ast.Expr(ast.Str(comment))
+
+    @staticmethod
+    def from_str(expr):
+        if expr.s.startswith(COMMENT_MARKER):
+            s = expr.s[len(COMMENT_MARKER):]
+            obj = pickle.loads(base64.b64decode(s))
+            return obj
+        return None
+
+
+class FunctionComment(Comment):
+    def __init__(self, code, header):
+        self.code = code
+        self.header = header
+
+        def to_string(self):
+            return '\n' + self.code
+
+        # if self.header:
+        #     return f'\nbegin | {self.code}'
+        # else:
+        #     return f'end | {self.code}\n'
 
 
 def dedent(s):
@@ -43,13 +73,17 @@ class SourceGeneratorWithComments(SourceGenerator):
     COMMENTS = False
 
     def visit_Str(self, node):
-        if self.__class__.COMMENTS and node.s.startswith(COMMENT_MARKER):
-            s = node.s[len(COMMENT_MARKER):]
-            indent = self.indent_with * self.indentation
-            comment = '\n'.join([f'{indent}# {part}' for part in s.split('\n')])
-            self.write('#\n' + comment)
-        else:
-            super().visit_Str(node)
+        if self.__class__.COMMENTS:
+            comment = Comment.from_str(node)
+            if comment is not None:
+                s = comment.to_string()
+                indent = self.indent_with * self.indentation
+                comment = '\n'.join(
+                    [f'{indent}# {part}' for part in s.split('\n')])
+                self.write(comment)
+                return
+
+        super().visit_Str(node)
 
 
 def a2s(a, comments=False):

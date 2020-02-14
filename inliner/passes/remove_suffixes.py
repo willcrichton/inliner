@@ -1,7 +1,7 @@
 import ast
 
 from .base_pass import BasePass
-from ..common import SEP, parse_expr, COMMENT_MARKER, a2s
+from ..common import SEP, parse_expr, COMMENT_MARKER, a2s, Comment
 from collections import defaultdict
 
 
@@ -34,19 +34,20 @@ class RemoveSuffixesPass(BasePass):
         return name
 
     def visit_Expr(self, expr):
-        if isinstance(expr.value, ast.Str) and \
-           expr.value.s.startswith(COMMENT_MARKER):
-            comment = expr.value.s[len(COMMENT_MARKER):]
-            call = parse_expr(comment)
-            name_map = self.name_map.copy()
-            generated_vars = self.inliner.generated_vars.copy()
-            self.name_map = {}
-            self.inliner.generated_vars = defaultdict(int)
-            self.visit(call)
-            self.inliner.generated_vars = generated_vars
-            self.name_map = name_map
-            expr.value.s = COMMENT_MARKER + a2s(call)
-            return expr
+        if isinstance(expr.value, ast.Str):
+            comment = Comment.from_str(expr.value)
+
+            if comment is not None:
+                call = parse_expr(comment.code)
+                name_map = self.name_map.copy()
+                generated_vars = self.inliner.generated_vars.copy()
+                self.name_map = {}
+                self.inliner.generated_vars = defaultdict(int)
+                self.visit(call)
+                self.inliner.generated_vars = generated_vars
+                self.name_map = name_map
+
+                return comment.to_stmt()
 
         self.generic_visit(expr)
         return expr

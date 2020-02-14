@@ -36,23 +36,13 @@ class FunctionTarget(InlineTarget):
     """
     def should_inline(self, code, obj, globls):
         if inspect.ismethod(obj):
-            # Get the class from the instance bound to the method
-            cls = obj.__self__.__class__
-
-            # Check if the class has the target method, and the runtime
-            # object is the same
-            cls_has_method = hasattr(cls, self.target.__name__)
-            if cls_has_method:
-                method_same_as_target = getattr(
-                    cls, self.target.__name__) == self.target
-                return method_same_as_target
-
-            return False
+            return obj.__func__ == self.target
 
         elif inspect.isfunction(obj):
-            # If it's a normal function, then directly compare for function
-            # equality
             return obj == self.target
+
+        else:
+            return False
 
 
 class ClassTarget(InlineTarget):

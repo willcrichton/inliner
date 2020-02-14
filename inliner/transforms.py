@@ -6,9 +6,9 @@ from iterextras import unzip
 import typing
 
 from .visitors import RemoveFunctoolsWraps, ReplaceYield, UsedGlobals, \
-    ReplaceSuper, ReplaceSelf, Rename, FindAssignments, ReplaceReturn, \
+    ReplaceSuper, Rename, FindAssignments, ReplaceReturn, \
     FindAssignment, collect_imports
-from .common import a2s, parse_stmt, parse_expr, make_name, obj_to_ast, SEP, COMMENT_MARKER
+from .common import a2s, parse_stmt, parse_expr, make_name, obj_to_ast, SEP, FunctionComment
 
 
 class ContextualTransforms:
@@ -228,7 +228,7 @@ class ContextualTransforms:
         new_stmts.append(
             ast.Assign(targets=[make_name(ret_var)], value=call_expr))
 
-    def _replace_self_super(self, f_ast, cls, call_expr, call_obj, new_stmts):
+    def _replace_super(self, f_ast, cls, call_expr, call_obj, new_stmts):
         # If we don't know what the class is, e.g. in Foo.method(foo), then
         # eval the LHS of the attribute, e.g. Foo here
         if cls is None:
@@ -253,10 +253,6 @@ class ContextualTransforms:
         # THIS IS UNSOUND with multiple inheritance (and potentially even with
         # basic subtype polymorphism?)
         ReplaceSuper(base).visit(f_ast)
-
-        # Replace references to `self.method()` with `Foo.method(self)`, same as
-        # expand_constructor()
-        ReplaceSelf(cls, self.globls).visit(f_ast)
 
     def _bind_arguments(self, f_ast, call_expr, new_stmts):
         args_def = f_ast.args
@@ -426,7 +422,9 @@ class ContextualTransforms:
             print('Inlining {}'.format(a2s(call_expr)))
 
         # Start by adding the call expression as a comment
-        new_stmts = [ast.Expr(ast.Str(COMMENT_MARKER + a2s(call_expr).strip()))]
+        new_stmts = [
+            FunctionComment(code=a2s(call_expr), header=True).to_stmt()
+        ]
 
         if f_ast is None:
             # Get the source code for the function
@@ -470,10 +468,10 @@ class ContextualTransforms:
             RemoveFunctoolsWraps().visit(stmt)
 
         # If the function is a method (which we proxy by first arg being named "self"),
-        # then we need to replace uses of special "self" and "super" keywords.
+        # then we need to replace uses of special "super" keywords.
         args_def = f_ast.args
         if len(args_def.args) > 0 and args_def.args[0].arg == 'self':
-            self._replace_self_super(f_ast, cls, call_expr, call_obj, new_stmts)
+            self._replace_super(f_ast, cls, call_expr, call_obj, new_stmts)
 
         # Add bindings from arguments in the call expression to arguments in function def
         self._bind_arguments(f_ast, call_expr, new_stmts)
@@ -491,6 +489,8 @@ class ContextualTransforms:
 
         # Inline function body
         new_stmts.extend(f_ast.body)
+        # new_stmts.append(
+        #     FunctionComment(code=a2s(call_expr), header=False).to_stmt())
 
         # If we're inlining a function not defined in the top-level source, then
         # add imports for all the nonlocal (global + closure) variables
