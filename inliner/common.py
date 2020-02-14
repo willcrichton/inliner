@@ -36,8 +36,8 @@ class FunctionComment(Comment):
         self.code = code
         self.header = header
 
-        def to_string(self):
-            return '\n' + self.code
+    def to_string(self):
+        return '\n' + self.code
 
         # if self.header:
         #     return f'\nbegin | {self.code}'
