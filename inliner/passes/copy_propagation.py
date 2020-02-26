@@ -55,9 +55,8 @@ class CopyPropagationPass(PropagationPass):
             k = stmt.targets[0].id
 
             is_ssa = self.tracer.set_count[k] == self.baseline_execs
-            not_in_orig_prog = k not in self.inliner.toplevel_vars
 
-            if is_ssa and not_in_orig_prog:
+            if is_ssa:
                 self.assignments.append((k, stmt.value))
                 return None
 

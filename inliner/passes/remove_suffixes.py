@@ -5,6 +5,8 @@ from ..common import SEP, parse_expr, COMMENT_MARKER, a2s, Comment
 from collections import defaultdict
 
 
+# TODO: this breaks for variables in source-level closures
+# e.g. x = 1; def foo(): return x
 class RemoveSuffixesPass(BasePass):
     """
     Remove the debug suffixes applied during inlining to avoid name clashes.

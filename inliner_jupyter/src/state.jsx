@@ -197,7 +197,8 @@ export class InlineState {
     };
 
     let passes = [
-      'deadcode', 'copy_propagation', 'value_propagation', 'lifetimes', 'simplify_varargs', 'partial_eval', 'expand_tuples', 'clean_imports', 'array_index'
+      'deadcode', 'copy_propagation', //'value_propagation',
+      'lifetimes', 'simplify_varargs', 'partial_eval', 'expand_tuples', 'clean_imports', 'array_index'
     ];
 
     if (inline) {

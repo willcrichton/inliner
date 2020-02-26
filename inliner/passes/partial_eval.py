@@ -15,7 +15,7 @@ class ShouldEval(ast.NodeVisitor):
                      ast.BinOp, ast.BoolOp, ast.Compare, ast.Attribute,
                      ast.Subscript, ast.Index, ast.Slice, ast.ExtSlice, ast.Eq,
                      ast.NotEq, ast.Is, ast.In, ast.Add, ast.Sub, ast.Mult,
-                     ast.Div, ast.And, ast.Or)
+                     ast.Div, ast.And, ast.Or, ast.Pow)
 
         if not isinstance(node, whitelist):
             self.should = False

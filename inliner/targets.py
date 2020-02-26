@@ -66,7 +66,11 @@ class ClassTarget(InlineTarget):
             if isinstance(code, ast.Attribute):
                 try:
                     cls = eval(a2s(code.value), globls, globls)
-                    unbound_method = issubclass(self.target, cls)
+
+                    if isinstance(cls, self.target):
+                        unbound_method = True
+                    else:
+                        unbound_method = issubclass(self.target, cls)
                 except Exception:
                     unbound_method = False
             else:
