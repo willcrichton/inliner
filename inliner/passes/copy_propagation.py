@@ -57,6 +57,5 @@ class CopyPropagationPass(PropagationPass):
 
             if is_ssa:
                 self.propagate(k, match['rhs'])
-                return stmt
 
         return stmt

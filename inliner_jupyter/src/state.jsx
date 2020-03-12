@@ -55,7 +55,13 @@ print(json.dumps(${this.name}.code_folding()))`);
     let call = fixpoint ? `fixpoint(inliner.${pass})` : `${pass}()`;
     let outp = await check_output(`print(${this.name}.${call})`);
     outp = outp.trim();
-    if (outp != 'True' && outp != 'False') {
+
+    // If running pass generates some output, we only want to look at
+    // the end of stdout
+    let lines = outp.split('\n');
+    let last_line = lines[lines.length - 1];
+
+    if (last_line != 'True' && last_line != 'False') {
       throw `${pass}: ${outp}`;
     }
 

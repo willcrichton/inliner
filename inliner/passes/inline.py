@@ -2,7 +2,7 @@ import ast
 import inspect
 
 from .base_pass import BasePass
-from ..common import a2s, parse_expr, make_name, parse_stmt
+from ..common import a2s, parse_expr, make_name, parse_stmt, compare_ast
 from ..transforms import ContextualTransforms
 
 
@@ -37,8 +37,8 @@ class FindCall(ast.NodeTransformer):
 
                 fdef = parse_stmt(inspect.getsource(call_obj))
                 if len(fdef.decorator_list) == 0:
-                    print('found closure', a2s(call_expr),
-                          self.generic_visit(call_expr))
+                    print('found closure', a2s(call_expr))
+                    self.generic_visit(call_expr)
                     return call_expr
 
         if not isinstance(call_expr.func, ast.Call) and \
@@ -224,7 +224,9 @@ class InlinePass(BasePass):
             return [stmt]
 
     def visit_FunctionDef(self, fdef):
-        if len(fdef.decorator_list) > 0:
+        if len(fdef.decorator_list) == 1:
+            assert not compare_ast(fdef.decorator_list[0].func,
+                                   parse_expr("functools.wraps"))
             name = make_name(fdef.name)
             dec_assgn = ast.Assign(targets=[name],
                                    value=ast.Call(func=fdef.decorator_list[0],

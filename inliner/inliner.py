@@ -98,7 +98,9 @@ class Inliner:
         Requires that the executed code was run through the tracer.
         """
         try:
-            if os.path.basename(inspect.getfile(obj)).startswith(FILE_PREFIX):
+            srcfile = inspect.getfile(obj)
+            if srcfile.startswith('<ipython-') or \
+               os.path.basename(srcfile).startswith(FILE_PREFIX):
                 return True
         except TypeError:
             pass

@@ -106,7 +106,8 @@ def compare_ast(node1, node2):
         return False
     if isinstance(node1, ast.AST):
         for k, v in vars(node1).items():
-            if k in ('lineno', 'col_offset', 'ctx', '_pp'):
+            if k in ('lineno', 'col_offset', 'ctx', '_pp', 'first_token',
+                     'last_token', 'tokens'):
                 continue
             if not compare_ast(v, getattr(node2, k)):
                 return False

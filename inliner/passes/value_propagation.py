@@ -97,7 +97,6 @@ class ValuePropagationPass(PropagationPass):
                 tree_size(stmt.value) <= MAX_TREESIZE
 
             if can_propagate_var and should_propagate_var:
-                self.assignments.append((k, stmt.value))
-                return None
+                self.propagate(k, stmt.value)
 
         return stmt
