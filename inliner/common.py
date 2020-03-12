@@ -11,6 +11,7 @@ from astpretty import pprint as pprintast
 import copy
 import inspect
 import pickle, base64
+import asttokens
 
 SEP = '___'
 COMMENT_MARKER = '__inliner: '
@@ -61,12 +62,18 @@ def dedent(s):
     return textwrap.dedent('\n'.join(lines))
 
 
+def parse_module(s):
+    t = asttokens.ASTTokens(dedent(s), parse=True)
+    t.tree.tokens = t.tokens
+    return t.tree
+
+
 def parse_stmt(s):
-    return ast.parse(dedent(s)).body[0]
+    return parse_module(s).body[0]
 
 
 def parse_expr(s):
-    return parse_stmt(dedent(s)).value
+    return parse_stmt(s).value
 
 
 class SourceGeneratorWithComments(SourceGenerator):
@@ -152,15 +159,12 @@ def can_convert_obj_to_ast(obj):
 
 
 def robust_eq(obj1, obj2):
-    import pandas as pd
-    import numpy as np
-
     if type(obj1) != type(obj2):
         return False
-    elif isinstance(obj1, pd.DataFrame) or isinstance(obj1, pd.Series):
-        return obj1.equals(obj2)
-    elif isinstance(obj1, np.ndarray):
-        return np.array_equal(obj1, obj2)
+    # elif isinstance(obj1, pd.DataFrame) or isinstance(obj1, pd.Series):
+    #     return obj1.equals(obj2)
+    # elif isinstance(obj1, np.ndarray):
+    #     return np.array_equal(obj1, obj2)
     elif isinstance(obj1, tuple) or isinstance(obj1, list):
         return len(obj1) == len(obj2) and all(
             map(lambda t: robust_eq(*t), zip(obj1, obj2)))
@@ -169,9 +173,7 @@ def robust_eq(obj1, obj2):
          inspect.isclass(obj1) or \
          obj1 is None:
         return obj1 == obj2
-
-    else:
-        return False
+    return False
 
 
 def make_name(s):

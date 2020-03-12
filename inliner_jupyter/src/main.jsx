@@ -56,13 +56,14 @@ let CreateNewButton = () => {
     let {
       text,
       cell_id,
-      set_cell_text
+      methods
     } = get_env().get_and_insert()
-    let state = new InlineState(set_cell_text, notebook_state);
+    let state = new InlineState(methods, notebook_state);
     await handle_error('create_new', state, () => state.setup(text));
     notebook_state.add_state(state);
 
-    await handle_error('refresh_target_suggestions', state, () => state.refresh_target_suggestions());
+    await handle_error('refresh_target_suggestions',
+                       state, () => state.refresh_target_suggestions());
 
     intro_step(intro, 2);
   };

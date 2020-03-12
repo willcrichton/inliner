@@ -46,7 +46,8 @@ class SimplifyVarargsPass(BasePass):
                 dict_obj = eval(a2s(stmt.value.func.value), self.globls,
                                 self.globls)
             except Exception:
-                raise
+                self.generic_visit(stmt)
+                return stmt
 
             # Expand dict.update(x=2) into dict['x'] = 2
             dict_ast = stmt.value.func.value

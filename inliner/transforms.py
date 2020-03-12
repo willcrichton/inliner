@@ -8,7 +8,7 @@ import typing
 from .visitors import RemoveFunctoolsWraps, ReplaceYield, UsedGlobals, \
     ReplaceSuper, Rename, FindAssignments, ReplaceReturn, \
     FindAssignment, collect_imports
-from .common import a2s, parse_stmt, parse_expr, make_name, obj_to_ast, SEP, FunctionComment
+from .common import a2s, parse_stmt, parse_expr, make_name, obj_to_ast, SEP, FunctionComment, ObjConversionException
 
 
 class ContextualTransforms:
@@ -417,7 +417,8 @@ class ContextualTransforms:
                         ret_var,
                         cls=None,
                         f_ast=None,
-                        debug=False):
+                        debug=False,
+                        is_toplevel=False):
         if debug:
             print('Inlining {}'.format(a2s(call_expr)))
 
@@ -477,7 +478,8 @@ class ContextualTransforms:
         self._bind_arguments(f_ast, call_expr, new_stmts)
 
         # Add an explicit return None at the end to reify implicit return
-        f_ast.body.append(parse_stmt("return None"))
+        if not is_toplevel and not isinstance(f_ast.body[-1], ast.Return):
+            f_ast.body.append(parse_stmt("return None"))
 
         # Iteratively replace all return statements with conditional assignments to
         # the ret_var. See ReplaceReturn in visitors.py for how this works.

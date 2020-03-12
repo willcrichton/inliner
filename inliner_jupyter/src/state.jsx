@@ -40,6 +40,13 @@ print(json.dumps(${this.name}.inlinables()))`;
     return JSON.parse(outp);
   }
 
+  async code_folding() {
+    const outp = await check_output(`
+import json
+print(json.dumps(${this.name}.code_folding()))`);
+    return JSON.parse(outp);
+  }
+
   async undo() {
     return check_call(`${this.name}.undo()`);
   }
@@ -110,9 +117,9 @@ export class InlineState {
   @observable.shallow target_suggestions = new Map();
   @observable program_history = []
 
-  constructor(set_cell_text, notebook_state) {
+  constructor(methods, notebook_state) {
     this.cell_id = notebook_state.current_cell;
-    this.set_cell_text = set_cell_text;
+    this.methods = methods;
     this.bridge = new PythonBridge('inliner');
     this.notebook_state = notebook_state;
   }
@@ -130,7 +137,7 @@ export class InlineState {
   @spinner
   async update_cell() {
     let src = await this.bridge.make_program();
-    this.set_cell_text(src);
+    this.methods.set_cell_text(src);
     this.program_history.push(src);
   }
 
@@ -197,7 +204,8 @@ export class InlineState {
     };
 
     let passes = [
-      'deadcode', 'copy_propagation', //'value_propagation',
+      'deadcode',
+      'copy_propagation', //'value_propagation',
       'lifetimes', 'simplify_varargs', 'partial_eval', 'expand_tuples', 'clean_imports', 'array_index'
     ];
 
@@ -210,6 +218,11 @@ export class InlineState {
     await run_until(passes);
 
     await this.run_pass('remove_suffixes');
+
+
+    let fold_lines = await this.bridge.code_folding();
+    this.methods.fold_lines(fold_lines);
+
     await this.refresh_target_suggestions();
   }
 }

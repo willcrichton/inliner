@@ -1,5 +1,6 @@
 import ast
 import inspect
+from ast_tools.pattern import ast_match
 
 from ..common import make_name, SEP, compare_ast, parse_expr, a2s, obj_to_ast, ObjConversionException
 from .base_pass import BasePass
@@ -11,14 +12,16 @@ class FindObjNew(ast.NodeVisitor):
         self.objs = set()
 
     def visit_Assign(self, stmt):
-        if isinstance(stmt.targets[0], ast.Name):
-            name = stmt.targets[0].id
-            assert name in self.globls, f'{name} not in globals'
-            obj = self.globls[name]
+        match = ast_match("{var:Name} = {cls:Name}.__new__({_})", stmt)
 
-            cls = obj.__class__.__name__
-            if compare_ast(stmt.value, parse_expr(f'{cls}.__new__({cls})')):
-                self.objs.add(id(obj))
+        if match is not None:
+            name = match['var'].id
+            if name in self.globls:
+                obj = self.globls[name]
+
+                cls = obj.__class__.__name__
+                if match['cls'].id == cls:
+                    self.objs.add(id(obj))
 
     def visit_FunctionDef(self, fdef):
         pass
@@ -144,22 +147,24 @@ class ExpandSelfPass(BasePass):
 
         elif isinstance(stmt.targets[0], ast.Name):
             name = stmt.targets[0].id
-            assert name in self.globls
-            obj = self.globls[name]
+            if name in self.globls:
+                obj = self.globls[name]
 
-            if id(obj) in self.objs_to_inline:
-                new_name = self.objs_to_inline[id(obj)]
+                if id(obj) in self.objs_to_inline:
+                    new_name = self.objs_to_inline[id(obj)]
 
-                cls = obj.__class__.__name__
-                if compare_ast(stmt.value, parse_expr(f'{cls}.__new__({cls})')):
-                    self.change = True
-                    return [
-                        ast.Assign(targets=[make_name(f'{new_name}{SEP}{k}')],
-                                   value=ast.NameConstant(None))
-                        for k in vars(obj).keys()
-                    ]
-                else:
-                    return []
+                    cls = obj.__class__.__name__
+                    if compare_ast(stmt.value,
+                                   parse_expr(f'{cls}.__new__({cls})')):
+                        self.change = True
+                        return [
+                            ast.Assign(
+                                targets=[make_name(f'{new_name}{SEP}{k}')],
+                                value=ast.NameConstant(None))
+                            for k in vars(obj).keys()
+                        ]
+                    else:
+                        return []
 
         self.generic_visit(stmt)
         return stmt

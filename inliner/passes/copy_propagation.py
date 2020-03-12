@@ -1,6 +1,7 @@
 import ast
 from .propagation_pass import PropagationPass
 from ..common import robust_eq, is_effect_free, tree_size
+from ast_tools.pattern import ast_match
 
 
 class CopyPropagationPass(PropagationPass):
@@ -49,15 +50,13 @@ class CopyPropagationPass(PropagationPass):
         sum += i * 10
     """
     def visit_Assign(self, stmt):
-        if len(stmt.targets) == 1 and \
-           isinstance(stmt.targets[0], ast.Name) and \
-           isinstance(stmt.value, ast.Name):
-            k = stmt.targets[0].id
-
+        match = ast_match("{lhs:Name} = {rhs:Name}", stmt)
+        if match is not None:
+            k = match['lhs'].id
             is_ssa = self.tracer.set_count[k] == self.baseline_execs
 
             if is_ssa:
-                self.assignments.append((k, stmt.value))
-                return None
+                self.propagate(k, match['rhs'])
+                return stmt
 
         return stmt

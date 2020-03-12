@@ -2,8 +2,9 @@ import dis
 import sys
 from collections import defaultdict
 from tempfile import NamedTemporaryFile
-from .common import try_copy
 from timeit import default_timer as now
+
+from .common import try_copy
 
 FILE_PREFIX = 'inline'
 MAX_COPY_SIZE = 128

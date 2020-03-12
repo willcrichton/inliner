@@ -42,7 +42,6 @@ class Inliner:
 
         self.globls = globls.copy() if globls is not None else {}
 
-        self.generated_vars = defaultdict(int)
         self._target_strs = []
         self.targets = []
         for target in targets:
@@ -131,6 +130,8 @@ class Inliner:
         return False
 
     def run_pass(self, Pass, **kwargs):
+        self.generated_vars = defaultdict(int)
+
         start = now()
         try:
             pass_ = Pass(self)
@@ -204,6 +205,14 @@ class Inliner:
 
     def execute(self):
         return Tracer(self.make_program(comments=False), self.globls).trace()
+
+    def code_folding(self):
+        prog = self.make_program(comments=True)
+        tracer = Tracer(prog, self.globls, trace_lines=True).trace()
+        mod = parse_module(prog)
+        finder = FindUnexecutedBlocks(tracer, mod.tokens)
+        finder.visit(mod)
+        return sorted([i - 1 for i in finder.unexecuted])
 
     def debug(self):
         f_body = textwrap.indent(a2s(self.history[0][0]).rstrip(), ' ' * 4)

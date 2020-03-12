@@ -29,6 +29,11 @@ class PropagationPass(BasePass):
         super().__init__(inliner)
         self.assignments = []
 
+    def propagate(self, name, value):
+        replacer = Replace(name, value)
+        for stmt in self.block_remaining:
+            replacer.visit(stmt)
+
     def after_visit(self, mod):
         #### TODO: iirc issue in detectron2 was that comprehensions are implicit closures,
         # and if a variable is captured in a closure then its read isn't logged.

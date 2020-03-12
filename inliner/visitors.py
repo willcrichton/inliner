@@ -306,3 +306,55 @@ class FindAssignment(ast.NodeVisitor):
            isinstance(stmt.targets[0], ast.Name) and \
            stmt.targets[0].id == self.var:
             self.assgn = stmt.value
+
+
+class FindClosedVariables(ast.NodeVisitor):
+    def __init__(self):
+        self.vars = set()
+        self.in_closure = 0
+
+    def visit_Name(self, name):
+        self.vars.add(name.id)
+
+    def generic_visit(self, node):
+        if isinstance(node, (ast.FunctionDef, ast.ListComp, ast.DictComp)):
+            self.in_closure += 1
+            super().generic_visit(node)
+            self.in_closure -= 1
+        else:
+            super().generic_visit(node)
+
+
+class FindUnexecutedBlocks(ast.NodeVisitor):
+    def __init__(self, tracer, tokens):
+        self.tracer = tracer
+        self.tokens = tokens
+        self.unexecuted = set()
+
+    def _find_nearest_else(self, idx):
+        i = idx
+        while i >= 0:
+            tok = self.tokens[i]
+            if tok.string == 'else':
+                return tok.start[0]
+            i -= 1
+        assert False, "Couldn't find else token"
+
+    def visit_If(self, node):
+        if_line = node.body[0].lineno
+        # print(node.lineno, if_line not in self.tracer.execed_lines,
+        #       a2s(node)[:100].replace('\n', ' '))
+        if if_line not in self.tracer.execed_lines:
+            self.unexecuted.add(node.lineno)
+            for stmt in node.orelse:
+                self.visit(stmt)
+        elif len(node.orelse) > 0:
+            else_first_line = node.orelse[0].lineno
+            if else_first_line not in self.tracer.execed_lines:
+                else_line = self._find_nearest_else(
+                    node.orelse[0].first_token.index)
+                self.unexecuted.add(else_line)
+            for stmt in node.body:
+                self.visit(stmt)
+        else:
+            self.generic_visit(node)

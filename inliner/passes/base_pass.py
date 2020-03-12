@@ -68,6 +68,29 @@ class BasePass(ast.NodeTransformer):
         else:
             return self.generic_visit(loop)
 
+    def generic_visit(self, node):
+        for field, old_value in ast.iter_fields(node):
+            if isinstance(old_value, list):
+                new_values = []
+                for i, value in enumerate(old_value):
+                    self.block_remaining = old_value[i + 1:]
+                    if isinstance(value, ast.AST):
+                        value = self.visit(value)
+                        if value is None:
+                            continue
+                        elif not isinstance(value, ast.AST):
+                            new_values.extend(value)
+                            continue
+                    new_values.append(value)
+                old_value[:] = new_values
+            elif isinstance(old_value, ast.AST):
+                new_node = self.visit(old_value)
+                if new_node is None:
+                    delattr(node, field)
+                else:
+                    setattr(node, field, new_node)
+        return node
+
     def run(self, **kwargs):
         self.args = defaultdict(lambda: None)
         for k, v in kwargs.items():

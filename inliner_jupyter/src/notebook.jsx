@@ -2,6 +2,7 @@ import Jupyter from 'base/js/namespace';
 import dialog from 'base/js/dialog';
 import React from 'react';
 import ReactDOM from 'react-dom';
+import CodeMirror from 'codemirror/lib/codemirror';
 
 import {
   Inliner,
@@ -57,8 +58,15 @@ class NotebookEnv extends Env {
     return {
       text: cell.get_text(),
       cell_id: new_cell.cell_id,
-      set_cell_text: (text) => new_cell.set_text(text)
+      methods: {
+        set_cell_text: (text) => new_cell.set_text(text),
+        fold_lines: (lines) => {
+          lines.forEach((line) =>
+            new_cell.code_mirror.foldCode(CodeMirror.Pos(line, 0)));
+        }
+      }
     };
+
   }
 
   get_selected_text() {

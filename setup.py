@@ -9,9 +9,7 @@ if __name__ == "__main__":
           author_email='wcrichto@cs.stanford.edu',
           license='Apache 2.0',
           packages=find_packages(),
-          install_requires=[
-              'astor', 'iterextras', 'numpy', 'pandas', 'astpretty'
-          ],
+          install_requires=['astor', 'iterextras', 'asttokens', 'ast_tools'],
           data_files=[('share/jupyter/nbextensions/inliner', [
               'inliner_jupyter/dist/notebook.js',
               'inliner_jupyter/dist/notebook.js.map',
@@ -19,5 +17,5 @@ if __name__ == "__main__":
                       ('etc/jupyter/nbconfig/notebook.d',
                        ['inliner_jupyter/inliner.json'])],
           setup_requires=['pytest-runner'],
-          tests_require=['pytest', 'seaborn'],
+          tests_require=['pytest', 'seaborn', 'pandas', 'numpy'],
           zip_safe=False)

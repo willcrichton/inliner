@@ -283,6 +283,9 @@ class InlinePass(BasePass):
         call_finder = FindCall(self.inliner, self.globls)
         stmt = call_finder.visit(stmt)
 
+        replaced_toplevel_call = isinstance(stmt, ast.Expr) and \
+            isinstance(stmt.value, ast.Name)
+
         new_stmts = []
         if call_finder.call_expr is not None:
             ret_var = call_finder.ret_var
@@ -296,8 +299,12 @@ class InlinePass(BasePass):
                 imprt = self.fns.expand_method(call_obj, call_expr, ret_var)
                 if imprt is not None:
                     new_stmts.insert(0, imprt)
-                new_stmts.append(
-                    ast.Assign(targets=[make_name(ret_var)], value=call_expr))
+                if replaced_toplevel_call:
+                    new_stmts.append(ast.Expr(value=call_expr))
+                else:
+                    new_stmts.append(
+                        ast.Assign(targets=[make_name(ret_var)],
+                                   value=call_expr))
 
             elif inspect.isgeneratorfunction(call_obj):
                 if debug:
@@ -312,10 +319,12 @@ class InlinePass(BasePass):
                     print('function', a2s(call_expr))
 
                 new_stmts.extend(
-                    self.fns.inline_function(call_obj,
-                                             call_expr,
-                                             ret_var,
-                                             debug=debug))
+                    self.fns.inline_function(
+                        call_obj,
+                        call_expr,
+                        ret_var,
+                        debug=debug,
+                        is_toplevel=replaced_toplevel_call))
 
             elif inspect.isclass(call_obj):
                 if debug:
@@ -339,5 +348,7 @@ class InlinePass(BasePass):
             self.inliner.num_inlined += 1
             self.change = True
 
-        new_stmts.append(stmt)
+        if call_finder.call_expr is None or not replaced_toplevel_call:
+            new_stmts.append(stmt)
+
         return new_stmts

@@ -39,6 +39,7 @@ let notebook_opts = build_options({
     'jquery': 'jquery',
     'base/js/namespace': 'base/js/namespace',
     'base/js/dialog': 'base/js/dialog',
+    'codemirror/lib/codemirror': 'codemirror/lib/codemirror'
   }
 });
 
