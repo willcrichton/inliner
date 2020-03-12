@@ -9,7 +9,10 @@ if __name__ == "__main__":
           author_email='wcrichto@cs.stanford.edu',
           license='Apache 2.0',
           packages=find_packages(),
-          install_requires=['astor', 'iterextras', 'asttokens', 'ast_tools'],
+          install_requires=[
+              'astor', 'iterextras', 'asttokens',
+              'git+https://github.com/leonardt/ast_tools'
+          ],
           data_files=[('share/jupyter/nbextensions/inliner', [
               'inliner_jupyter/dist/notebook.js',
               'inliner_jupyter/dist/notebook.js.map',
