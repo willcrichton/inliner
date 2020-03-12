@@ -11,7 +11,7 @@ if __name__ == "__main__":
           packages=find_packages(),
           install_requires=[
               'astor', 'iterextras', 'asttokens',
-              'git+https://github.com/leonardt/ast_tools'
+              'ast_tools @ git+https://github.com/leonardt/ast_tools'
           ],
           data_files=[('share/jupyter/nbextensions/inliner', [
               'inliner_jupyter/dist/notebook.js',
