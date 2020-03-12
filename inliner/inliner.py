@@ -6,7 +6,6 @@ import textwrap
 import os
 import typing
 from pprint import pprint
-from astpretty import pprint as pprintast
 import itertools
 import copy
 import re
