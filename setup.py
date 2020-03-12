@@ -12,7 +12,7 @@ if __name__ == "__main__":
         packages=find_packages(),
         install_requires=[
             'astor', 'iterextras', 'asttokens',
-            'ast_tools @ git+https://github.com/leonardt/ast_tools.git#egg=ast_tools-0.0.14'
+            'ast_tools @ https://github.com/leonardt/ast_tools/tarball/master#egg=ast_tools-0.0.14'
         ],
         data_files=[('share/jupyter/nbextensions/inliner', [
             'inliner_jupyter/dist/notebook.js',
