@@ -191,6 +191,11 @@ export class InlineState {
     return this.simplify(false)
   }
 
+  async fold_code() {
+    let fold_lines = await this.bridge.code_folding();
+    this.methods.fold_lines(fold_lines);
+  }
+
   @spinner
   async simplify(inline = true) {
     let run_until = async (passes) => {
@@ -224,10 +229,7 @@ export class InlineState {
     await run_until(passes);
 
     await this.run_pass('remove_suffixes');
-
-
-    let fold_lines = await this.bridge.code_folding();
-    this.methods.fold_lines(fold_lines);
+    await this.fold_code();
 
     await this.refresh_target_suggestions();
   }

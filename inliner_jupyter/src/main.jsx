@@ -345,6 +345,16 @@ let DevButton = mobx_react.observer(() => {
   </span>;
 });
 
+let FoldButton = mobx_react.observer(() => {
+  let state = React.useContext(notebook_context).current_state;
+  return <span>
+    <button className='btn btn-default' title='Fold code'
+            onClick={() => state.fold_code()}>
+      <i className='fa fa-folder-open-o' />
+    </button>
+  </span>;
+});
+
 export class Inliner extends React.Component {
   state = {
     intro: null
@@ -375,6 +385,7 @@ export class Inliner extends React.Component {
                 <UndoButton />
                 <DiffButton />
                 <BugButton />
+                <FoldButton />
               </span> : null}
             </span>
             <div style={{display: state.current_state ? 'block' : 'none'}}>
