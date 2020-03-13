@@ -314,7 +314,8 @@ class FindClosedVariables(ast.NodeVisitor):
         self.in_closure = 0
 
     def visit_Name(self, name):
-        self.vars.add(name.id)
+        if self.in_closure:
+            self.vars.add(name.id)
 
     def generic_visit(self, node):
         if isinstance(node, (ast.FunctionDef, ast.ListComp, ast.DictComp)):

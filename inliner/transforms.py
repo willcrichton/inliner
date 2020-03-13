@@ -7,7 +7,7 @@ import typing
 
 from .visitors import RemoveFunctoolsWraps, ReplaceYield, UsedGlobals, \
     ReplaceSuper, Rename, FindAssignments, ReplaceReturn, \
-    FindAssignment, collect_imports
+    FindAssignment, collect_imports, FindClosedVariables
 from .common import a2s, parse_stmt, parse_expr, make_name, obj_to_ast, SEP, FunctionComment, ObjConversionException
 
 
@@ -257,6 +257,16 @@ class ContextualTransforms:
     def _bind_arguments(self, f_ast, call_expr, new_stmts):
         args_def = f_ast.args
 
+        args = call_expr.args[:]
+        arg_names = set([arg.arg for arg in args_def.args])
+
+        assgn_finder = FindAssignments()
+        assgn_finder.visit(f_ast)
+
+        closed_var_finder = FindClosedVariables()
+        for stmt in f_ast.body:
+            closed_var_finder.visit(stmt)
+
         # Scope a variable name as unique to the function, and update any references
         # to it in the function
         def unique_and_rename(name):
@@ -266,12 +276,23 @@ class ContextualTransforms:
                 renamer.visit(stmt)
             return unique_name
 
-        args = call_expr.args[:]
+        def bind_new_argument(k, v):
+            # special case: if doing a name copy, e.g. f(x=y), then directly
+            # substitute [x -> y] in the inlined function body. Only do this
+            # if substitution is legal (x is not assigned or closed).
+            if isinstance(v, ast.Name) and \
+               k not in assgn_finder.names and \
+               k not in closed_var_finder.vars:
+                renamer = Rename(k, v.id)
+                for stmt in f_ast.body:
+                    renamer.visit(stmt)
+            else:
+                # Add a binding from function argument to call argument
+                uniq_k = unique_and_rename(k)
+                stmt = ast.Assign(targets=[make_name(uniq_k)], value=v)
+                new_stmts.append(stmt)
 
         # Rename all variables declared in the function that aren't arguments
-        assgn_finder = FindAssignments()
-        assgn_finder.visit(f_ast)
-        arg_names = set([arg.arg for arg in args_def.args])
         for name in assgn_finder.names:
             if name not in arg_names:
                 unique_and_rename(name)
@@ -357,10 +378,7 @@ class ContextualTransforms:
             else:
                 v = anon_defaults.pop(k)
 
-            # Add a binding from function argument to call argument
-            uniq_k = unique_and_rename(k)
-            stmt = ast.Assign(targets=[make_name(uniq_k)], value=v)
-            new_stmts.append(stmt)
+            bind_new_argument(k, v)
 
         # Perform equivalent procedure as above, but for keyword-only arguments
         for arg in args_def.kwonlyargs:
@@ -373,9 +391,7 @@ class ContextualTransforms:
             else:
                 v = kw_defaults.pop(k)
 
-            uniq_k = unique_and_rename(k)
-            stmt = ast.Assign(targets=[make_name(uniq_k)], value=v)
-            new_stmts.append(stmt)
+            bind_new_argument(k, v)
 
         # If function definition uses *args, then assign it to the remaining anonymous
         # arguments from the call_expr
