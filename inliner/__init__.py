@@ -1,1 +1,1 @@
-from .inliner import *
+from .inliner import Inliner

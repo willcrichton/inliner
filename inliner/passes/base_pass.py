@@ -1,101 +1,74 @@
-import ast
+import libcst as cst
 from collections import defaultdict
 
-from ..tracer import Tracer
+from ..common import a2s
+from ..contexts import ctx_inliner
 
 
-class CancelPass(Exception):
-    pass
+class StatementInserter(cst.CSTTransformer):
+    statement_types = (cst.SimpleStatementLine, cst.SimpleStatementSuite,
+                       cst.BaseCompoundStatement)
+
+    def __init__(self):
+        self._current_stmt = []
+        self._new_stmts = defaultdict(list)
+
+    def _handle_block(self, old_node, new_node):
+        new_block = []
+        changed = False
+        for old_stmt, new_stmt in zip(old_node.body, new_node.body):
+            new_stmts = self._new_stmts.get(old_stmt, None)
+            if new_stmts:
+                changed = True
+                new_block.extend(new_stmts)
+            new_block.append(new_stmt)
+
+        if changed:
+            return new_node.with_changes(body=new_block)
+        else:
+            return new_node
+
+    def insert_statements_before_current(self, stmts):
+        assert len(self._current_stmt) > 0
+        self._new_stmts[self._current_stmt[-1]].extend(stmts)
+
+    def on_visit(self, node):
+        if isinstance(node, self.statement_types):
+            self._current_stmt.append(node)
+
+        return super().on_visit(node)
+
+    def on_leave(self, old_node, new_node):
+        if isinstance(new_node, (cst.IndentedBlock, cst.Module)):
+            return self._handle_block(old_node, new_node)
+
+        if isinstance(old_node, self.statement_types):
+            self._current_stmt.pop()
+
+        return super().on_leave(old_node, new_node)
 
 
-class RemoveEmptyBlocks(ast.NodeTransformer):
-    def generic_visit(self, node):
-        super().generic_visit(node)
+class BasePass(StatementInserter):
+    def __init__(self):
+        super().__init__()
+        self.inliner = ctx_inliner.get()
+        self.generated_vars = defaultdict(int)
+        self.after_init()
 
-        if hasattr(node, 'body') and \
-           ((isinstance(node.body, list) and len(node.body) == 0) or \
-            node.body is None):
-            return None
-        return node
-
-
-class BasePass(ast.NodeTransformer):
-    tracer_args = None
-
-    def __init__(self, inliner):
-        self.inliner = inliner
-
-        if self.tracer_args is not None:
-            if inliner._tracer_cache is not None and \
-               self.tracer_args == inliner._tracer_cache[0]:
-                tracer = inliner._tracer_cache[1]
-            else:
-                prog = inliner.make_program(comments=False)
-                tracer = Tracer(prog, inliner.globls, **self.tracer_args)
-                tracer.trace()
-                inliner.module = ast.parse(prog)
-
-            self.tracer = tracer
-            self.globls = tracer.globls
-            self.baseline_execs = 1
-
-        self.change = False
-
-    def after_visit(self, mod):
+    def after_init(self):
         pass
 
-    def visit_Module(self, mod):
-        self.generic_visit(mod)
-        RemoveEmptyBlocks().visit(mod)
-        self.after_visit(mod)
-        return mod
+    def fresh_var(self, prefix):
+        """
+        Creates a new variable semi-guaranteed to not exist in the program.
+        """
+        self.generated_vars[prefix] += 1
+        count = self.generated_vars[prefix]
+        if count == 1:
+            return f'{prefix}'
+        else:
+            return f'{prefix}_{count}'
 
     def visit_FunctionDef(self, fdef):
         # Don't recurse into inline function definitions
-        return fdef
-
-    def visit_For(self, loop):
-        if self.tracer_args is not None:
-            # Track the current number of loop iterations as we descend the AST
-            loop_iters = self.tracer.execed_lines[loop.lineno] - 1
-            if loop_iters > 0:
-                self.baseline_execs *= loop_iters
-                outp = self.generic_visit(loop)
-                self.baseline_execs /= loop_iters
-                return outp
-            else:
-                return self.generic_visit(loop)
-        else:
-            return self.generic_visit(loop)
-
-    def generic_visit(self, node):
-        for field, old_value in ast.iter_fields(node):
-            if isinstance(old_value, list):
-                new_values = []
-                for i, value in enumerate(old_value):
-                    self.block_remaining = old_value[i + 1:]
-                    if isinstance(value, ast.AST):
-                        value = self.visit(value)
-                        if value is None:
-                            continue
-                        elif not isinstance(value, ast.AST):
-                            new_values.extend(value)
-                            continue
-                    new_values.append(value)
-                old_value[:] = new_values
-            elif isinstance(old_value, ast.AST):
-                new_node = self.visit(old_value)
-                if new_node is None:
-                    delattr(node, field)
-                else:
-                    setattr(node, field, new_node)
-        return node
-
-    def run(self, **kwargs):
-        self.args = defaultdict(lambda: None)
-        for k, v in kwargs.items():
-            self.args[k] = v
-
-        self.visit(self.inliner.module)
-
-        return self.change
+        return False

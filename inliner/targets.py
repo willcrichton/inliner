@@ -1,7 +1,8 @@
 import inspect
 import ast
 import importlib
-from .common import a2s
+
+from .contexts import ctx_inliner
 
 
 class InlineTarget:
@@ -11,7 +12,7 @@ class InlineTarget:
     def __init__(self, target):
         self.target = target
 
-    def should_inline(self, code, obj, globls):
+    def should_inline(self, code, obj):
         raise NotImplementedError
 
 
@@ -21,7 +22,7 @@ class ModuleTarget(InlineTarget):
 
     e.g. if target = a.b, then objs defined in a.b or a.b.c will be inlined
     """
-    def should_inline(self, code, obj, globls):
+    def should_inline(self, code, obj):
         # Check if object is defined in the same module or a submodule
         # of the target.
         module = inspect.getmodule(obj)
@@ -34,7 +35,7 @@ class FunctionTarget(InlineTarget):
     """
     Inline exactly this function
     """
-    def should_inline(self, code, obj, globls):
+    def should_inline(self, code, obj):
         if inspect.ismethod(obj):
             return obj.__func__ == self.target
 
@@ -49,7 +50,9 @@ class ClassTarget(InlineTarget):
     """
     Inline this class and all of its methods
     """
-    def should_inline(self, code, obj, globls):
+    def should_inline(self, code, obj):
+        inliner = ctx_inliner.get()
+
         # e.g. Target()
         try:
             constructor = self.target == obj or issubclass(self.target, obj)
@@ -65,7 +68,7 @@ class ClassTarget(InlineTarget):
         if inspect.isfunction(obj):
             if isinstance(code, ast.Attribute):
                 try:
-                    cls = eval(a2s(code.value), globls, globls)
+                    cls = inliner._eval(code.value)
 
                     if isinstance(cls, self.target):
                         unbound_method = True
@@ -76,7 +79,7 @@ class ClassTarget(InlineTarget):
             else:
                 qname = obj.__qualname__.split('.')
                 try:
-                    attr = eval('.'.join(qname[:-1]), globls, globls)
+                    attr = inliner._eval('.'.join(qname[:-1]))
                     unbound_method = issubclass(self.target, attr)
                 except Exception:
                     unbound_method = False
@@ -90,7 +93,9 @@ class ClassTarget(InlineTarget):
 
 
 def make_target(target):
-    if isinstance(target, str):
+    if isinstance(target, InlineTarget):
+        return target
+    elif isinstance(target, str):
         try:
             target_obj = importlib.import_module(target)
         except ModuleNotFoundError:
