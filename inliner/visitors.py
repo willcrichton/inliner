@@ -3,8 +3,9 @@ import libcst.matchers as m
 from libcst.metadata import ExpressionContext
 from collections import defaultdict
 from collections.abc import Iterable
+import inspect
 
-from .common import make_assign, parse_statement, parse_expr, a2s, ExpressionContextProvider
+from .common import make_assign, parse_module, parse_statement, parse_expr, a2s, ExpressionContextProvider
 
 
 class RemoveEmptyBlocks(cst.CSTTransformer):
@@ -105,7 +106,6 @@ if "{name}" not in globals():
                             cur_stmts.append(stmt)
 
                         if i < N - 1:
-                            print('A', a2s(block[0]))
                             cur_stmts.append(self._build_if(block))
 
                         break
@@ -149,6 +149,22 @@ class FindClosedVariables(cst.CSTVisitor):
             self.in_closure -= 1
 
 
+class UsedNames(cst.CSTVisitor):
+    METADATA_DEPENDENCIES = (ExpressionContextProvider, )
+
+    def __init__(self):
+        self.names = set()
+
+    def visit_Name(self, name):
+        try:
+            expr_ctx = self.get_metadata(ExpressionContextProvider, name)
+        except KeyError:
+            return
+
+        if expr_ctx == ExpressionContext.LOAD:
+            self.names.add(name.value)
+
+
 class Rename(cst.CSTTransformer):
     METADATA_DEPENDENCIES = (ExpressionContextProvider, )
 
@@ -158,12 +174,14 @@ class Rename(cst.CSTTransformer):
 
     def visit_FunctionDef(self, fdef):
         if fdef.name.value != self.src:
-            for arg in args.args:
-                arg_names.add(arg.arg)
-            if args.vararg is not None:
-                arg_names.add(args.vararg.arg)
-            if args.kwarg is not None:
-                arg_names.add(args.kwarg.arg)
+            params = fdef.params
+            arg_names = set()
+            for arg in params.params:
+                arg_names.add(arg.name.value)
+            if params.star_arg is not None:
+                arg_names.add(params.star_arg.name.value)
+            if params.star_kwarg is not None:
+                arg_names.add(params.star_kwarg.name.value)
 
             return self.src not in arg_names
 
@@ -201,3 +219,54 @@ class ReplaceSuper(cst.CSTTransformer):
                     args=[cst.Arg(cst.Name('self'))] + list(new_call.args))
 
         return new_call
+
+
+class CollectImports(cst.CSTVisitor):
+    def __init__(self, mod):
+        self.imprts = {}
+        self.mod = mod
+
+    def visit_Import(self, imprt):
+        for alias in imprt.names:
+            name = alias.asname.name.value if alias.asname is not None else alias.name.value
+            self.imprts[name] = cst.Import(names=[alias])
+
+    def visit_ImportFrom(self, imprt):
+        for alias in imprt.names:
+            name = alias.asname.value if alias.asname is not None else alias.name.value
+
+            level = len(imprt.relative)
+            if level > 0:
+                parts = self.mod.split('.')
+                mod_level = '.'.join(
+                    parts[:-level]) if len(parts) > 1 else parts[0]
+                if imprt.module is not None:
+                    module = parse_expr(f'{mod_level}.{a2s(imprt.module)}')
+                else:
+                    module = parse_expr(mod_level)
+            else:
+                module = imprt.module
+
+            self.imprts[name] = cst.ImportFrom(module=module, names=[alias])
+
+
+def collect_imports(obj):
+    mod = inspect.getmodule(obj)
+    if mod is None:
+        return []
+
+    import_collector = CollectImports(mod=mod.__name__)
+    obj_mod = parse_module(open(inspect.getsourcefile(obj)).read())
+    obj_mod.visit(import_collector)
+    return import_collector.imprts
+
+
+class RemoveFunctoolsWraps(cst.CSTTransformer):
+    def leave_FunctionDef(self, _, fdef):
+        ftool_pattern = m.Call(
+            func=m.Attribute(value=m.Name("functools"), attr=m.Name("wraps")))
+        if len(fdef.decorators) == 1:
+            dec = fdef.decorators[0].decorator
+            if m.matches(dec, ftool_pattern):
+                return fdef.with_changes(decorators=[])
+        return fdef

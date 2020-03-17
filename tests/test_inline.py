@@ -4,11 +4,19 @@ from inliner.targets import make_target
 from inliner.passes.inline import InlinePass
 import difflib
 import inspect
+import functools
 
 
-def harness(prog, target, outp, locls):
-    i = Inliner(prog)
-    i.inline([make_target(target)], add_comments=False)
+def harness(prog, target, outp, locls, fixpoint=False):
+    i = Inliner(prog, globls=locls)
+    targets = [make_target(t) for t in target] if isinstance(
+        target, list) else [make_target(target)]
+
+    if fixpoint:
+        i.fixpoint(i.inline, targets, add_comments=False)
+    else:
+        i.inline(targets, add_comments=False)
+
     outp_module = i.module.with_changes(body=parse_module(outp).body)
 
     # Print debug information if unexpected output
@@ -212,3 +220,109 @@ for i, j in zip(gen_ret, range(10)):
 """
 
     harness(prog, gen, outp, locals())
+
+
+def test_import():
+    import api
+
+    def prog():
+        api.use_json()
+
+    outp = """
+import json
+assert json.dumps({}) == '{}'
+if "use_json_ret" not in globals():
+    use_json_ret = None
+use_json_ret
+"""
+
+    harness(prog, api, outp, locals())
+
+
+def test_import_same_file():
+    from api import nested_reference
+
+    def prog():
+        assert nested_reference() == 1
+
+    outp = """
+from api import f
+if "nested_reference_ret" not in globals():
+    nested_reference_ret = f()
+assert nested_reference_ret == 1
+"""
+
+    harness(prog, nested_reference, outp, locals())
+
+
+def test_property():
+    class Target:
+        def __init__(self):
+            self.foo = 1
+
+        @property
+        def bar(self):
+            return self.foo
+
+        @bar.setter
+        def bar(self, foo):
+            self.foo = foo
+
+    def prog():
+        t = Target()
+        assert t.bar == 1
+        t.bar = 2
+        assert t.bar == 2
+
+    outp = """
+Target_ret = Target.__new__(Target)
+Target_ret.foo = 1
+t = Target_ret
+if "bar" not in globals():
+    bar = t.foo
+assert bar == 1
+foo___bar_4 = 2
+t.foo = foo___bar_4
+if "bar_3" not in globals():
+    bar_3 = None
+if "bar_5" not in globals():
+    bar_5 = t.foo
+assert bar_5 == 2"""
+
+    harness(prog, Target, outp, locals())
+
+
+def test_decorator():
+    def dec_test(f):
+        @functools.wraps(f)
+        def newf(*args, **kwargs):
+            return f(*args, **kwargs) + 2
+
+        return newf
+
+    @dec_test
+    def function_decorator(x):
+        return x + 1
+
+    def prog():
+        assert function_decorator(1) == 4
+
+    outp = """
+def function_decorator(x):
+    return x + 1
+def newf(*args, **kwargs):
+    return function_decorator(*args, **kwargs) + 2
+if "dec_test_ret" not in globals():
+    dec_test_ret = newf
+args___newf = [1]
+kwargs___newf = {}
+if "dec_test_ret_ret" not in globals():
+    x___function_decorator = args___newf[0]
+    if "function_decorator_ret" not in globals():
+        function_decorator_ret = x___function_decorator + 1
+    dec_test_ret_ret = function_decorator_ret + 2
+function_decorator_ret = dec_test_ret_ret
+assert function_decorator_ret == 4
+"""
+
+    harness(prog, [function_decorator, dec_test], outp, locals(), fixpoint=True)

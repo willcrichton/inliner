@@ -3,10 +3,12 @@ import inspect
 import libcst as cst
 import libcst.matchers as m
 from iterextras import unzip
+import typing
+import builtins
 
 from .contexts import ctx_inliner, ctx_pass
-from .common import a2s, SEP, make_assign, make_string, make_list, make_dict, parse_statement, parse_expr
-from .visitors import FindAssignments, FindClosedVariables, Rename, ReplaceReturn, ReplaceYield, ReplaceSuper
+from .common import a2s, SEP, make_assign, make_string, make_list, make_dict, make_index, parse_statement, parse_expr, get_function_locals
+from .visitors import FindAssignments, FindClosedVariables, Rename, ReplaceReturn, ReplaceYield, ReplaceSuper, UsedNames, collect_imports, RemoveFunctoolsWraps
 
 
 def bind_arguments(f_ast, call_expr, new_stmts):
@@ -65,7 +67,8 @@ def bind_arguments(f_ast, call_expr, new_stmts):
 
         # Generate an indexing expression for each element of the list
         call_star_args = [
-            make_index(star_arg, cst.Num(i)) for i in range(len(star_arg_obj))
+            make_index(star_arg, cst.Integer(str(i)))
+            for i in range(len(star_arg_obj))
         ]
     else:
         star_arg = None
@@ -83,13 +86,14 @@ def bind_arguments(f_ast, call_expr, new_stmts):
 
     # Function's anonymous arguments, e.g. f(1, 2) becomes [1, 2]
     call_anon_args = [
-        arg.value for arg in call_expr.args if arg.keyword is None
+        arg.value for arg in call_expr.args
+        if arg.keyword is None and arg.star == ''
     ]
 
     # Function's keyword arguments, e.g. f(x=1, y=2) becomes {'x': 1, 'y': 2}
     call_kwargs = {
         arg.keyword.value: arg.value
-        for arg in call_expr.args if arg.keyword is not None
+        for arg in call_expr.args if arg.keyword is not None and arg.star == ''
     }
 
     # Match up defaults with variable names.
@@ -172,56 +176,102 @@ def bind_arguments(f_ast, call_expr, new_stmts):
     return f_ast
 
 
-def replace_super(f_ast, cls, call_expr, call_obj, new_stmts):
+def replace_super(f_ast, cls, call, func_obj, new_stmts):
     inliner = ctx_inliner.get()
 
     # If we don't know what the class is, e.g. in Foo.method(foo), then
     # eval the LHS of the attribute, e.g. Foo here
     if cls is None:
-        if m.matches(call_expr.func, m.Attribute()):
-            cls = inliner._eval(call_expr.func.value)
+        if m.matches(call.func, m.Attribute()):
+            cls = inliner._eval(call.func.value)
         else:
-            cls = inliner._eval(call_expr.func).__class__
+            cls = inliner._eval(call.func).__class__
 
+    # TODO: support multiple inheritance
     # Add import for base class
+    assert len(cls.__bases__) == 1
     base = cls.__bases__[0]
+    file_imports = collect_imports(func_obj)
+    imprt = generate_import(base.__name__, base, func_obj, file_imports)
+    if imprt is not None:
+        new_stmts.insert(0, imprt)
 
-    # TODO
-    # file_imports = collect_imports(call_obj)
-    # new_stmts.insert(
-    #     0,
-    #     self.generate_imports(base.__name__,
-    #                           base,
-    #                           call_obj=call_obj,
-    #                           file_imports=file_imports))
-
-    # HACK: we're assuming super() always refers to the first base class,
-    # but it actually depends on the specific method being called and the MRO.
-    # THIS IS UNSOUND with multiple inheritance (and potentially even with
-    # basic subtype polymorphism?)
     return f_ast.visit(ReplaceSuper(base))
 
 
-def inline_function(call_obj,
-                    call_expr,
+def generate_imports_for_nonlocals(f_ast, func_obj, call):
+    used_names = UsedNames()
+    cst.MetadataWrapper(f_ast.body).visit(used_names)
+
+    closure = {**func_obj.__globals__, **get_function_locals(func_obj)}
+    file_imports = collect_imports(func_obj)
+
+    imports = [
+        generate_import(name, closure[name], func_obj, file_imports)
+        for name in used_names.names if name in closure
+    ]
+    imports = [i for i in imports if i]
+
+    return imports
+
+
+def inline_decorators(f_ast, call, func_obj, ret_var):
+    """
+    Expand decorator calls to an inlined function.
+
+    Example:
+      @foo
+      def bar(x):
+        return x + 1
+      assert bar(1) == 2
+
+      >> becomes >>
+
+      def bar(x):
+        return x + 1
+      assert foo(bar(1)) == 2
+    """
+    decorators = f_ast.decorators
+
+    # TODO
+    # used_globals = UsedGlobals(func_obj.__globals__)
+    # used_globals.visit(f_ast)
+    # used = used_globals.used
+    # file_imports = collect_imports(func_obj)
+    # for name, globl in used_globals.used.items():
+    #     imprt = self.generate_imports(name,
+    #                                   globl,
+    #                                   func_obj=func_obj,
+    #                                   file_imports=file_imports)
+    #     if imprt is not None:
+    #         new_stmts.insert(0, imprt)
+
+    f_ast = f_ast.with_changes(decorators=[])
+
+    new_call = call.with_changes(
+        func=cst.Call(func=decorators[0].decorator, args=[cst.Arg(f_ast.name)]))
+
+    return [f_ast, make_assign(cst.Name(ret_var), new_call)]
+
+
+def inline_function(func_obj,
+                    call,
                     ret_var,
                     cls=None,
                     f_ast=None,
                     add_comments=True,
                     is_toplevel=False):
-    log.debug('Inlining {}'.format(a2s(call_expr)))
+    log.debug('Inlining {}'.format(a2s(call)))
 
     inliner = ctx_inliner.get()
     pass_ = ctx_pass.get()
 
-    new_stmts = []
-
     if f_ast is None:
         # Get the source code for the function
         try:
-            f_source = inspect.getsource(call_obj)
+            f_source = inspect.getsource(func_obj)
         except TypeError:
-            print('Failed to get source of {}'.format(a2s(call_expr)))
+            print('Failed to get source of {}'.format(a2s(call)))
             raise
 
         # Record statistics about length of inlined source
@@ -235,27 +285,25 @@ def inline_function(call_obj,
     f_ast = f_ast.with_changes(name=cst.Name(pass_.fresh_var(f_ast.name.value)))
 
     # TODO
-    # # If function has decorators, deal with those first. Just inline decorator call
-    # # and stop there.
-    # decorators = f_ast.decorator_list
-    # assert len(decorators) <= 1
-    # if len(decorators) == 1:
-    #     d = decorators[0]
-    #     builtin_decorator = (
-    #         isinstance(d, ast.Name)
-    #         and (d.id in ['property', 'classmethod', 'staticmethod']))
-    #     derived_decorator = (isinstance(d, ast.Attribute)
-    #                          and (d.attr in ['setter']))
-    #     if not (builtin_decorator or derived_decorator):
-    #         self._expand_decorators(new_stmts, f_ast, call_expr, call_obj,
-    #                                 ret_var)
-    #         return new_stmts
+    # If function has decorators, deal with those first. Just inline decorator call
+    # and stop there.
+    decorators = f_ast.decorators
+    assert len(decorators) <= 1  # TODO: deal with multiple decorators
+    if len(decorators) == 1:
+        d = decorators[0].decorator
+        builtin_decorator = (
+            isinstance(d, cst.Name)
+            and (d.value in ['property', 'classmethod', 'staticmethod']))
+        derived_decorator = (isinstance(d, cst.Attribute)
+                             and (d.attr.value in ['setter']))
+        if not (builtin_decorator or derived_decorator):
+            return inline_decorators(f_ast, call, func_obj, ret_var)
 
-    # TODO
     # # If we're inlining a decorator, we need to remove @functools.wraps calls
     # # to avoid messing up inspect.getsource
-    # for stmt in f_ast.body:
-    #     RemoveFunctoolsWraps().visit(stmt)
+    f_ast = f_ast.with_changes(body=f_ast.body.visit(RemoveFunctoolsWraps()))
+
+    new_stmts = []
 
     # If the function is a method (which we proxy by first arg being named "self"),
     # then we need to replace uses of special "super" keywords.
@@ -264,15 +312,15 @@ def inline_function(call_obj,
         first_arg_is_self = m.matches(args_def.params[0],
                                       m.Param(m.Name('self')))
         if first_arg_is_self:
-            f_ast = replace_super(f_ast, cls, call_expr, call_obj, new_stmts)
+            f_ast = replace_super(f_ast, cls, call, func_obj, new_stmts)
 
     # Add bindings from arguments in the call expression to arguments in function def
-    f_ast = bind_arguments(f_ast, call_expr, new_stmts)
+    f_ast = bind_arguments(f_ast, call, new_stmts)
 
     # Add an explicit return None at the end to reify implicit return
     f_body = f_ast.body
     last_stmt_is_return = m.matches(f_body.body[-1],
-                                    m.SimpleStatementLine(m.cst.Return()))
+                                    m.SimpleStatementLine([m.Return()]))
     if (not is_toplevel and  # If function return is being assigned
             cls is None and  # And not an __init__ fn
             not last_stmt_is_return):
@@ -286,30 +334,18 @@ def inline_function(call_obj,
     # Inline function body
     new_stmts.extend(f_ast.body.body)
 
+    # Create imports for non-local variables
+    imports = generate_imports_for_nonlocals(f_ast, func_obj, call)
+    new_stmts = imports + new_stmts
+
     if add_comments:
         # Add header comment to first statement
-        header_comment = cst.Comment(f'# {a2s(call_expr)}')
+        header_comment = cst.Comment(f'# {a2s(call)}')
         first_stmt = new_stmts[0]
         new_stmts[0] = first_stmt.with_changes(leading_lines=[
             cst.EmptyLine(),
             cst.EmptyLine(comment=header_comment)
         ] + list(first_stmt.leading_lines))
-
-    # TODO
-    # # If we're inlining a function not defined in the top-level source, then
-    # # add imports for all the nonlocal (global + closure) variables
-    # if not self.inliner.is_source_obj(call_obj):
-    #     used = self._get_nonlocal_vars(f_ast, call_obj)
-    #     file_imports = collect_imports(call_obj)
-    #     for name, value in used.items():
-    #         if name == 'self':  # HACK
-    #             continue
-    #         imprt = self.generate_imports(name,
-    #                                       value,
-    #                                       call_obj=call_obj,
-    #                                       file_imports=file_imports)
-    #         if imprt is not None:
-    #             new_stmts.insert(0, imprt)
 
     return new_stmts
 
@@ -362,6 +398,48 @@ def inline_constructor(func_obj, call, ret_var, add_comments=True):
     return [make_obj] + init_inline
 
 
+def inline_method(func_obj, call, ret_var, add_comments=True):
+    """
+    Replace bound methods with unbound functions.
+
+    Example:
+      f = Foo()
+      assert f.bar(0) == 1
+
+      >> becomes >>
+
+      f = Foo()
+      assert Foo.bar(f, 0) == 1
+    """
+
+    # HACK: assume all methods are called syntactically as obj.method()
+    # as opposed to x = obj.method; x()
+    assert isinstance(call.func, cst.Attribute)
+
+    method_name = call.func.attr.value
+
+    # Get the object bound to the method
+    bound_obj = func_obj.__self__
+
+    # If the method is a classmethod, the method is bound to the class
+    if inspect.isclass(bound_obj):
+        new_func = f'{bound_obj.__name__}.{method_name}.__func__'
+    else:
+        new_func = f'{bound_obj.__class__.__name__}.{method_name}'
+
+    new_func = parse_expr(new_func)
+
+    # Add the object as explicit self parameter
+    new_call = call.with_changes(func=new_func,
+                                 args=[cst.Arg(call.func.value)] +
+                                 list(call.args))
+
+    return inline_function(func_obj.__func__,
+                           new_call,
+                           ret_var,
+                           add_comments=add_comments)
+
+
 def inline_generator(func_obj, call, ret_var, add_comments=True):
     """
     Inlines generators (those using yield).
@@ -403,3 +481,52 @@ def inline_generator(func_obj, call, ret_var, add_comments=True):
                         add_comments=add_comments))
 
     return new_stmts
+
+
+def generate_import(name, obj, func_obj, file_imports):
+    """
+    Generate an import statement for a (name, runtime object) pair.
+    """
+    inliner = ctx_inliner.get()
+
+    # HACK? is this still needed?
+    if name == 'self':
+        return None
+
+    # If the name is already in scope, don't need to import it
+    if name in inliner.base_globls:
+        # TODO: name conflicts? e.g. host imports json as x, and
+        # another module imports foo as x
+        return None
+
+    # If the name appears directly in an import statement in the object's file,
+    # then use that import
+    if name in file_imports:
+        return cst.SimpleStatementLine([file_imports[name]])
+
+    # If we're importing a module, then add an import directly
+    if inspect.ismodule(obj):
+        mod_name = obj.__name__
+        return parse_statement(f'import {mod_name} as {name}'
+                               if name != mod_name else f'import {mod_name}')
+    else:
+        # Get module where global is defined
+        mod = inspect.getmodule(obj)
+
+        # TODO: When is mod None?
+        if mod is None or mod is typing:
+            return None
+
+        # Can't import builtins
+        elif mod is __builtins__ or mod is builtins:
+            return None
+
+        # If the value is a class or function, then import it from the defining
+        # module
+        elif inspect.isclass(obj) or inspect.isfunction(obj):
+            return parse_statement(f'from {mod.__name__} import {name}')
+
+        # Otherwise import it from the module using the global
+        elif func_obj is not None:
+            func_mod_name = inspect.getmodule(func_obj).__name__
+            return parse_statement(f'from {func_mod_name} import {name}')

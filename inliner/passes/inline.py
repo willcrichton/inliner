@@ -3,7 +3,7 @@ import libcst.matchers as m
 import inspect
 
 from .base_pass import BasePass
-from ..common import a2s, EvalException, get_function_locals, parse_statement
+from ..common import a2s, EvalException, get_function_locals, parse_statement, parse_expr
 from .. import transforms
 
 
@@ -77,8 +77,79 @@ class InlinePass(BasePass):
 
         return call
 
+    def _is_property(self, node):
+        assert isinstance(node, cst.Attribute)
+
+        # for example, foo.x where the class of foo has @property def x()
+        try:
+            # get the runtime object for foo
+            prop_obj = self.inliner._eval(node.value)
+        except Exception:
+            # if we can't find it, ignore
+            return None
+
+        # if foo should be inlined, and it is an instance of a class,
+        # and the class has the attribute, and the attribute is a property
+        attr_str = node.attr.value
+        if self.inliner.should_inline(node.value) and \
+           hasattr(prop_obj, '__class__') and \
+           hasattr(prop_obj.__class__, attr_str):
+            prop = getattr(prop_obj.__class__, attr_str)
+            if isinstance(prop, property):
+                return (prop, prop_obj)
+
+        return None
+
+    # Classes using @property have accessors that are actually calling
+    # functions. This visitor looks for uses of @property.
+    def leave_Attribute(self, _, attr):
+        ret = self._is_property(attr)
+        if ret is not None:
+            (prop, prop_obj) = ret
+            # foo.x is same as Foo.x.fget(foo), so we treat the property
+            # as a function call so we can pass it to the function inliner
+            func_obj = prop.fget
+            call = parse_expr("{}.{}_getter({})".format(
+                prop_obj.__class__.__name__, attr.attr.value, a2s(attr.value)))
+
+            # TODO: need to generate an import for
+            # prop_obj.__class__.__name__
+
+            ret_var = self.fresh_var(attr.attr.value)
+
+            self._inline(ret_var, call, func_obj)
+
+            return cst.Name(ret_var)
+
+        return attr
+
+    def _is_property_fset(self, assgn):
+        return m.matches(assgn,
+                         m.Assign(targets=[m.AssignTarget(m.Attribute())]))
+
+    def visit_Assign(self, assgn):
+        # Don't allow visitor to recurse onto LHS of a property assignment
+        if self._is_property_fset(assgn):
+            return False
+
+    # Also check for @property assignments, e.g. t.x = 1 where this calls
+    # a setter
     def leave_Assign(self, _, assgn):
-        if m.matches(assgn, m.Assign(targets=[m.AssignTarget(m.Attribute())])):
-            target = m.targets[0].target
+        if self._is_property_fset(assgn):
+            target = assgn.targets[0].target
+            ret = self._is_property(target)
+            if ret is not None:
+                (prop, prop_obj) = ret
+
+                func_obj = prop.fset
+                call = parse_expr("{}.{}_setter({}, {})".format(
+                    prop_obj.__class__.__name__, target.attr.value,
+                    a2s(target.value), a2s(assgn.value)))
+
+                ret_var = self.fresh_var(target.attr.value)
+
+                self._inline(ret_var, call, func_obj)
+
+                return cst.RemovalSentinel.REMOVE
 
         return assgn

@@ -6,8 +6,7 @@ from .passes.inline import InlinePass
 from .contexts import ctx_inliner, ctx_pass
 from .common import a2s, get_function_locals, parse_module, EvalException
 from .targets import make_target
-
-FILE_PREFIX = 'TODO'
+from .tracer import Tracer, TRACER_FILE_PREFIX
 
 
 class Inliner:
@@ -37,8 +36,7 @@ class Inliner:
         """
         try:
             srcfile = inspect.getfile(obj)
-            if srcfile.startswith('<ipython-') or \
-               os.path.basename(srcfile).startswith(FILE_PREFIX):
+            if os.path.basename(srcfile).startswith(TRACER_FILE_PREFIX):
                 return True
         except TypeError:
             pass
@@ -73,19 +71,27 @@ class Inliner:
 
     def run_pass(self, Pass, **kwargs):
         self.cur_globls = self.base_globls.copy()
-        exec(self.module.code, self.cur_globls)
+        Tracer(self.module.code, globls=self.cur_globls).trace()
 
+        orig_module = self.module
         with ctx_inliner.set(self):
             pass_ = Pass(**kwargs)
             with ctx_pass.set(pass_):
                 self.module = cst.MetadataWrapper(self.module).visit(pass_)
 
+        return not orig_module.deep_equals(self.module)
+
     def inline(self, targets, **kwargs):
         self.targets = [make_target(t) for t in targets]
-        self.run_pass(InlinePass, **kwargs)
+        return self.run_pass(InlinePass, **kwargs)
 
     def optimize(self, passes):
         pass
+
+    def fixpoint(self, f, *args, **kwargs):
+        while True:
+            if not f(*args, **kwargs):
+                return
 
     def _eval(self, code):
         if isinstance(code, cst.CSTNode):

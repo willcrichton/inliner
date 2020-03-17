@@ -32,8 +32,8 @@ def make_string(s):
 
 
 def make_index(arr, idx):
-    return cst.Subscript(value=arr,
-                         slice=cst.SubscriptElement(slice=cst.Index(value=idx)))
+    return cst.Subscript(
+        value=arr, slice=[cst.SubscriptElement(slice=cst.Index(value=idx))])
 
 
 def make_list(elts):
