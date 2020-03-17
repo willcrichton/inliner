@@ -37,14 +37,13 @@ class InlinePass(BasePass):
         # is detected by checking if the function object has a closure.
         if not self.inliner.is_source_obj(func_obj):
             closure = get_function_locals(func_obj)
-            if not (len(closure) == 1
+            if len(closure) > 0 and \
+               not (len(closure) == 1
                     and next(iter(closure.keys())) == '__class__'):
                 fdef = parse_statement(inspect.getsource(func_obj))
 
-                # TODO
-                # if len(fdef.decorator_list) == 0:
-                #     print('found closure', a2s(func))
-                #     return False
+                if len(fdef.decorators) == 0:
+                    return False
 
         # Can't inline the output of a higher order function directly
         not_higher_order = not m.matches(func, m.Call())

@@ -8,7 +8,9 @@ import difflib
 def harness(prog, target, outp):
     i = Inliner(prog)
     i.inline([FunctionTarget(target)], add_comments=False)
-    outp_module = parse_module(outp)
+    outp_module = i.module.with_changes(body=parse_module(outp).body)
+
+    # Print debug information if unexpected output
     if not outp_module.deep_equals(i.module):
         print('GENERATED')
         print(i.module.code)
@@ -16,7 +18,10 @@ def harness(prog, target, outp):
         print('TARGET')
         print(outp_module.code)
         assert False
-    exec(i.module.code)
+
+    # Make sure we don't violate any assertions
+    globls = {}
+    exec(i.module.code, globls, globls)
 
 
 def test_basic():
@@ -83,6 +88,35 @@ if "target_ret" not in globals():
 if "target_ret_2" not in globals():
     target_ret_2 = target_ret + 1
 assert target_ret_2 == 3
+"""
+
+    harness(prog, target, outp)
+
+
+def test_return():
+    def target():
+        if True:
+            x = 1
+            return x
+            assert False
+        assert False
+        return 3
+
+    def prog():
+        assert target() == 1
+
+    outp = """
+if True:
+  x = 1
+  if "target_ret" not in globals():
+    target_ret = x
+  if "target_ret" not in globals():
+    assert False
+if "target_ret" not in globals():
+  assert False
+  if "target_ret" not in globals():
+    target_ret = 3
+assert target_ret == 1
 """
 
     harness(prog, target, outp)

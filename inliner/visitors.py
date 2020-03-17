@@ -1,75 +1,118 @@
 import libcst as cst
 import libcst.matchers as m
+from collections import defaultdict
+from collections.abc import Iterable
 
-from .common import make_assign, parse_statement
+from .common import make_assign, parse_statement, a2s
 
 
-class ReplaceReturn(cst.CSTTransformer):
+class RemoveEmptyBlocks(cst.CSTTransformer):
+    statement_types = (cst.SimpleStatementLine, cst.SimpleStatementSuite,
+                       cst.BaseCompoundStatement)
+
+    block_types = (cst.IndentedBlock, cst.Module)
+
+    def on_leave(self, old_node, new_node):
+        new_node = super().on_leave(old_node, new_node)
+        if isinstance(new_node,
+                      (cst.SimpleStatementLine, cst.SimpleStatementSuite)):
+            if len(new_node.body) == 0:
+                return cst.RemovalSentinel.REMOVE
+
+        elif isinstance(new_node, cst.BaseCompoundStatement):
+            if len(new_node.body.body) == 0:
+                return cst.RemovelSentinel.REMOVE
+
+        return new_node
+
+
+class StatementInserter(RemoveEmptyBlocks):
+    def __init__(self):
+        self._new_stmts = []
+
+    def insert_statements_before_current(self, stmts):
+        self._new_stmts[-1].extend(stmts)
+
+    def on_visit(self, node):
+        if isinstance(node, self.block_types):
+            self._new_stmts.append([])
+
+        return super().on_visit(node)
+
+    def on_leave(self, old_node, new_node):
+        new_node = super().on_leave(old_node, new_node)
+
+        if isinstance(old_node, self.block_types):
+            assert type(old_node) is type(new_node)
+            new_node = new_node.with_changes(body=self._new_stmts.pop())
+
+        elif isinstance(old_node, self.statement_types):
+            if new_node is not cst.RemovalSentinel.REMOVE:
+                self._new_stmts[-1].append(new_node)
+
+        return new_node
+
+
+class ReplaceReturn(StatementInserter):
     def __init__(self, name):
+        super().__init__()
         self.name = name
-        self.toplevel = True
-        self.found_return = False
+        self.return_blocks = set()
         self.if_wrapper = parse_statement(f"""
 if "{name}" not in globals():
     pass
 """)
 
-    def leave_SimpleStatementLine(self, _, stmt):
-        ret = stmt.body[0]
-        if m.matches(ret, m.Return()):
-            # A naked return (without a value) will have ret.value = None
-            value = ret.value if ret.value is not None else cst.Name('None')
-            if_stmt = self.if_wrapper.with_deep_changes(
-                self.if_wrapper.body,
-                body=[make_assign(cst.Name(self.name), value)])
-            self.found_return = True
-            return if_stmt
-        return stmt
+    def _build_if(self, body):
+        return self.if_wrapper.with_deep_changes(self.if_wrapper.body,
+                                                 body=body)
+
+    def leave_Return(self, _, ret):
+        # A naked return (without a value) will have ret.value = None
+        value = ret.value if ret.value is not None else cst.Name('None')
+        if_stmt = self._build_if([make_assign(cst.Name(self.name), value)])
+        self.insert_statements_before_current([if_stmt])
+        return ret
 
     def visit_FunctionDef(self, fdef):
-        # no recurse to avoid messing up inline functions
-        if self.toplevel:
-            self.toplevel = False
-            return True
         return False
 
-    # TODO
-    # def generic_visit(self, node):
-    #     for field, old_value in ast.iter_fields(node):
-    #         # if we're iterating over assignment targets, don't try to introduce
-    #         # if statements between targets
-    #         if isinstance(old_value, list) and field not in ['targets']:
-    #             new_values = []
-    #             for i, cur_value in enumerate(old_value):
-    #                 if isinstance(cur_value, ast.AST):
-    #                     value = self.visit(cur_value)
+    def on_leave(self, old_node, new_node):
+        new_node = super().on_leave(old_node, new_node)
 
-    #                     stmt_types = (ast.For, ast.If, ast.With,
-    #                                   ast.FunctionDef, ast.Assign, ast.While)
-    #                     if isinstance(node, stmt_types) and self.found_return:
-    #                         new_values.append(value)
-    #                         if i < len(old_value) - 1:
-    #                             if_stmt = copy.deepcopy(self.if_wrapper)
-    #                             if_stmt.body = old_value[i + 1:]
-    #                             new_values.append(if_stmt)
-    #                         break
+        if isinstance(new_node, self.block_types):
+            cur_stmts = new_node.body
 
-    #                     if value is None:
-    #                         continue
-    #                     elif not isinstance(value, ast.AST):
-    #                         new_values.extend(value)
-    #                         continue
+            while True:
+                change = False
+                N = len(cur_stmts)
+                for i in reversed(range(N)):
+                    stmt = cur_stmts[i]
+                    is_return = m.matches(stmt,
+                                          m.SimpleStatementLine([m.Return()]))
+                    is_return_block = isinstance(stmt, cst.BaseCompoundStatement) and \
+                        stmt.body in self.return_blocks
 
-    #                 new_values.append(value)
-    #             old_value[:] = new_values
-    #         elif isinstance(old_value, ast.AST):
-    #             new_node = self.visit(old_value)
-    #             if new_node is None:
-    #                 delattr(node, field)
-    #             else:
-    #                 setattr(node, field, new_node)
+                    if is_return or is_return_block:
+                        change = True
 
-    #     return node
+                        [cur_stmts, block] = [cur_stmts[:i], cur_stmts[i + 1:]]
+
+                        if is_return_block:
+                            self.return_blocks.remove(stmt.body)
+                            cur_stmts.append(stmt)
+
+                        if i < N - 1:
+                            cur_stmts.append(self._build_if(block))
+
+                        break
+
+                if not change:
+                    break
+
+            new_node = new_node.with_changes(body=cur_stmts)
+            self.return_blocks.add(new_node)
+        return new_node
 
 
 class FindAssignments(cst.CSTVisitor):

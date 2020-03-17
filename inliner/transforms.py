@@ -243,13 +243,7 @@ def inline_function(call_obj,
                                         body=list(f_body.body) +
                                         [parse_statement("return None")])
 
-    # Iteratively replace all return statements with conditional assignments to
-    # the ret_var. See ReplaceReturn in visitors.py for how this works.
-    while True:
-        replacer = ReplaceReturn(ret_var)
-        f_ast = f_ast.visit(replacer)
-        if not replacer.found_return:
-            break
+    f_ast = f_ast.with_changes(body=f_ast.body.visit(ReplaceReturn(ret_var)))
 
     # Inline function body
     new_stmts.extend(f_ast.body.body)

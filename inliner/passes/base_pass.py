@@ -1,51 +1,8 @@
 import libcst as cst
 from collections import defaultdict
 
-from ..common import a2s
+from ..visitors import StatementInserter
 from ..contexts import ctx_inliner
-
-
-class StatementInserter(cst.CSTTransformer):
-    statement_types = (cst.SimpleStatementLine, cst.SimpleStatementSuite,
-                       cst.BaseCompoundStatement)
-
-    def __init__(self):
-        self._current_stmt = []
-        self._new_stmts = defaultdict(list)
-
-    def _handle_block(self, old_node, new_node):
-        new_block = []
-        changed = False
-        for old_stmt, new_stmt in zip(old_node.body, new_node.body):
-            new_stmts = self._new_stmts.get(old_stmt, None)
-            if new_stmts:
-                changed = True
-                new_block.extend(new_stmts)
-            new_block.append(new_stmt)
-
-        if changed:
-            return new_node.with_changes(body=new_block)
-        else:
-            return new_node
-
-    def insert_statements_before_current(self, stmts):
-        assert len(self._current_stmt) > 0
-        self._new_stmts[self._current_stmt[-1]].extend(stmts)
-
-    def on_visit(self, node):
-        if isinstance(node, self.statement_types):
-            self._current_stmt.append(node)
-
-        return super().on_visit(node)
-
-    def on_leave(self, old_node, new_node):
-        if isinstance(new_node, (cst.IndentedBlock, cst.Module)):
-            return self._handle_block(old_node, new_node)
-
-        if isinstance(old_node, self.statement_types):
-            self._current_stmt.pop()
-
-        return super().on_leave(old_node, new_node)
 
 
 class BasePass(StatementInserter):
