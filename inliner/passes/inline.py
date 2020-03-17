@@ -153,3 +153,9 @@ class InlinePass(BasePass):
                 return cst.RemovalSentinel.REMOVE
 
         return assgn
+
+    def on_visit(self, node):
+        if isinstance(node, cst.BaseComp):
+            return False
+
+        return super().on_visit(node)

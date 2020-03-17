@@ -2,6 +2,8 @@ from tempfile import NamedTemporaryFile
 from collections import defaultdict
 import sys
 import dis
+import libcst as cst
+from libcst.metadata import PositionProvider
 
 TRACER_FILE_PREFIX = 'inline'
 
@@ -49,7 +51,7 @@ class Tracer:
         self.trace_lines = trace_lines
         self.trace_reads = trace_reads
         self._frame_analyzer = None
-        self.globls = globls
+        self.globls = globls.copy() if globls is not None else {}
 
     def _trace_fn(self, frame, event, arg):
         if frame.f_code.co_filename != self._fname:
@@ -109,3 +111,14 @@ class Tracer:
                 raise
 
         return self
+
+
+class IsExecutedProvider(cst.BatchableMetadataProvider):
+    METADATA_DEPENDENCIES = (PositionProvider, )
+
+    def __init__(self, tracer):
+        super().__init__()
+        self.tracer = tracer
+
+    def on_visit(self, node):
+        pos = self.get_metadata(PositionProvider, node)

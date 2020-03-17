@@ -70,8 +70,8 @@ class Inliner:
         return False
 
     def run_pass(self, Pass, **kwargs):
-        self.cur_globls = self.base_globls.copy()
-        Tracer(self.module.code, globls=self.cur_globls).trace()
+        t = Tracer(self.module.code, globls=self.base_globls).trace()
+        self.cur_globls = t.globls
 
         orig_module = self.module
         with ctx_inliner.set(self):

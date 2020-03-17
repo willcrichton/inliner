@@ -7,8 +7,11 @@ import typing
 import builtins
 
 from .contexts import ctx_inliner, ctx_pass
-from .common import a2s, SEP, make_assign, make_string, make_list, make_dict, make_index, parse_statement, parse_expr, get_function_locals
-from .visitors import FindAssignments, FindClosedVariables, Rename, ReplaceReturn, ReplaceYield, ReplaceSuper, UsedNames, collect_imports, RemoveFunctoolsWraps
+from .common import a2s, SEP, make_assign, make_string, make_list, make_dict, \
+    make_index, parse_statement, parse_expr, get_function_locals
+from .visitors import FindAssignments, FindClosedVariables, Rename, \
+    ReplaceReturn, ReplaceYield, ReplaceSuper, UsedNames, collect_imports, \
+    RemoveFunctoolsWraps
 
 
 def bind_arguments(f_ast, call_expr, new_stmts):

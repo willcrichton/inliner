@@ -32,7 +32,7 @@ def harness(prog, target, outp, locls, fixpoint=False):
     exec(i.module.code, locls, locls)
 
 
-def test_basic():
+def test_inline_basic():
     def target(x):
         return x + 1
 
@@ -49,7 +49,7 @@ assert target_ret == 2
     harness(prog, target, outp, locals())
 
 
-def test_args():
+def test_inline_args():
     def target(a, b, c=1, d=2, *args, **kwargs):
         assert (a == 1)
         assert (b == 2)
@@ -82,7 +82,7 @@ target_ret
     harness(prog, target, outp, locals())
 
 
-def test_nested():
+def test_inline_nested():
     def target(x):
         return x + 1
 
@@ -101,7 +101,7 @@ assert target_ret_2 == 3
     harness(prog, target, outp, locals())
 
 
-def test_return():
+def test_inline_return():
     def target():
         if True:
             x = 1
@@ -130,7 +130,7 @@ assert target_ret == 1
     harness(prog, target, outp, locals())
 
 
-def test_class_constructor():
+def test_inline_class_constructor():
     class Test:
         def __init__(self, x):
             self.x = x
@@ -150,7 +150,7 @@ assert t.x == 1
     harness(prog, Test, outp, locals())
 
 
-def test_class_method():
+def test_inline_class_method():
     class Test:
         def __init__(self):
             self.x = 1
@@ -175,7 +175,7 @@ assert foo_ret == 2
     harness(prog, Test, outp, locals())
 
 
-def test_class_super():
+def test_inline_class_super():
     class A:
         def __init__(self):
             self.x = 1
@@ -200,7 +200,7 @@ assert b.x + b.y == 2
     harness(prog, B, outp, locals())
 
 
-def test_generator():
+def test_inline_generator():
     def gen():
         for i in range(10):
             yield i
@@ -222,7 +222,7 @@ for i, j in zip(gen_ret, range(10)):
     harness(prog, gen, outp, locals())
 
 
-def test_import():
+def test_inline_import():
     import api
 
     def prog():
@@ -239,7 +239,7 @@ use_json_ret
     harness(prog, api, outp, locals())
 
 
-def test_import_same_file():
+def test_inline_import_same_file():
     from api import nested_reference
 
     def prog():
@@ -255,7 +255,7 @@ assert nested_reference_ret == 1
     harness(prog, nested_reference, outp, locals())
 
 
-def test_property():
+def test_inline_property():
     class Target:
         def __init__(self):
             self.foo = 1
@@ -292,7 +292,7 @@ assert bar_5 == 2"""
     harness(prog, Target, outp, locals())
 
 
-def test_decorator():
+def test_inline_decorator():
     def dec_test(f):
         @functools.wraps(f)
         def newf(*args, **kwargs):
@@ -312,17 +312,35 @@ def function_decorator(x):
     return x + 1
 def newf(*args, **kwargs):
     return function_decorator(*args, **kwargs) + 2
-if "dec_test_ret" not in globals():
-    dec_test_ret = newf
+if "dec_test_inline_ret" not in globals():
+    dec_test_inline_ret = newf
 args___newf = [1]
 kwargs___newf = {}
-if "dec_test_ret_ret" not in globals():
+if "dec_test_inline_ret_ret" not in globals():
     x___function_decorator = args___newf[0]
     if "function_decorator_ret" not in globals():
         function_decorator_ret = x___function_decorator + 1
-    dec_test_ret_ret = function_decorator_ret + 2
-function_decorator_ret = dec_test_ret_ret
+    dec_test_inline_ret_ret = function_decorator_ret + 2
+function_decorator_ret = dec_test_inline_ret_ret
 assert function_decorator_ret == 4
 """
 
     harness(prog, [function_decorator, dec_test], outp, locals(), fixpoint=True)
+
+
+def test_inline_comprehension():
+    def target(x):
+        return x + 1
+
+    def prog():
+        l = [target(i) for i in range(3)]
+        assert sum(l) == 6
+
+    # target SHOULD NOT be inlined, since that would be unsafe
+    # before comprehension is expanded
+    outp = """
+l = [target(i) for i in range(3)]
+assert sum(l) == 6
+"""
+
+    harness(prog, target, outp, locals())
