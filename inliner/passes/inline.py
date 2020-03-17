@@ -4,7 +4,7 @@ import inspect
 
 from .base_pass import BasePass
 from ..common import a2s, EvalException, get_function_locals, parse_statement
-from ..transforms import inline_function
+from .. import transforms
 
 
 class InlinePass(BasePass):
@@ -13,11 +13,20 @@ class InlinePass(BasePass):
         self.add_comments = add_comments
 
     def _inline(self, ret_var, call, func_obj):
-        if inspect.isfunction(func_obj):
-            new_stmts = inline_function(func_obj,
-                                        call,
-                                        ret_var,
-                                        add_comments=self.add_comments)
+        if inspect.isgeneratorfunction(func_obj):
+            new_stmts = transforms.inline_generator(
+                func_obj, call, ret_var, add_comments=self.add_comments)
+        elif inspect.isfunction(func_obj):
+            new_stmts = transforms.inline_function(
+                func_obj, call, ret_var, add_comments=self.add_comments)
+        elif inspect.isclass(func_obj):
+            new_stmts = transforms.inline_constructor(
+                func_obj, call, ret_var, add_comments=self.add_comments)
+        elif inspect.ismethod(func_obj):
+            new_stmts = transforms.inline_method(func_obj,
+                                                 call,
+                                                 ret_var,
+                                                 add_comments=self.add_comments)
         else:
             raise NotImplemented
 
@@ -27,7 +36,7 @@ class InlinePass(BasePass):
         if m.matches(func, m.Name()):
             return func.value
         elif m.matches(func, m.Attribute()):
-            return func.attr
+            return func.attr.value
         else:
             return 'func'
 
@@ -55,7 +64,7 @@ class InlinePass(BasePass):
 
         try:
             func_obj = self.inliner._eval(func)
-        except EvalException:
+        except EvalException as e:
             return call
 
         if self._should_inline(func, func_obj):

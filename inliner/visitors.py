@@ -1,9 +1,10 @@
 import libcst as cst
 import libcst.matchers as m
+from libcst.metadata import ExpressionContext
 from collections import defaultdict
 from collections.abc import Iterable
 
-from .common import make_assign, parse_statement, a2s
+from .common import make_assign, parse_statement, parse_expr, a2s, ExpressionContextProvider
 
 
 class RemoveEmptyBlocks(cst.CSTTransformer):
@@ -83,6 +84,7 @@ if "{name}" not in globals():
         if isinstance(new_node, self.block_types):
             cur_stmts = new_node.body
 
+            any_change = False
             while True:
                 change = False
                 N = len(cur_stmts)
@@ -95,7 +97,7 @@ if "{name}" not in globals():
 
                     if is_return or is_return_block:
                         change = True
-
+                        any_change = True
                         [cur_stmts, block] = [cur_stmts[:i], cur_stmts[i + 1:]]
 
                         if is_return_block:
@@ -103,6 +105,7 @@ if "{name}" not in globals():
                             cur_stmts.append(stmt)
 
                         if i < N - 1:
+                            print('A', a2s(block[0]))
                             cur_stmts.append(self._build_if(block))
 
                         break
@@ -111,7 +114,8 @@ if "{name}" not in globals():
                     break
 
             new_node = new_node.with_changes(body=cur_stmts)
-            self.return_blocks.add(new_node)
+            if any_change:
+                self.return_blocks.add(new_node)
         return new_node
 
 
@@ -146,6 +150,8 @@ class FindClosedVariables(cst.CSTVisitor):
 
 
 class Rename(cst.CSTTransformer):
+    METADATA_DEPENDENCIES = (ExpressionContextProvider, )
+
     def __init__(self, src, dst):
         self.src = src
         self.dst = dst
@@ -161,12 +167,37 @@ class Rename(cst.CSTTransformer):
 
             return self.src not in arg_names
 
-    def leave_FunctionDef(self, _, fdef):
-        if fdef.name.value == self.src:
-            return fdef.with_changes(name=cst.Name(self.dst))
-        return fdef
+    def leave_Name(self, old_name, new_name):
+        try:
+            expr_ctx = self.get_metadata(ExpressionContextProvider, old_name)
+        except KeyError:
+            return new_name
 
-    def leave_Name(self, _, name):
-        if name.value == self.src:
-            return name.with_changes(value=self.dst)
-        return name
+        if expr_ctx == ExpressionContext.LOAD and new_name.value == self.src:
+            return new_name.with_changes(value=self.dst)
+
+        return new_name
+
+
+class ReplaceYield(cst.CSTTransformer):
+    def __init__(self, ret_var):
+        self.ret_var = ret_var
+
+    def leave_Yield(self, old_expr, new_expr):
+        append = parse_expr(f'{self.ret_var}.append()')
+        return append.with_changes(args=[cst.Arg(new_expr.value)])
+
+
+class ReplaceSuper(cst.CSTTransformer):
+    def __init__(self, cls):
+        self.cls = cls
+
+    def leave_Call(self, _, new_call):
+        if m.matches(new_call.func, m.Attribute(value=m.Call(m.Name('super')))):
+            return new_call \
+                .with_deep_changes(
+                    new_call.func, value=cst.Name(self.cls.__name__)) \
+                .with_changes(
+                    args=[cst.Arg(cst.Name('self'))] + list(new_call.args))
+
+        return new_call

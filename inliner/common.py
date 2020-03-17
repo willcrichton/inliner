@@ -1,10 +1,16 @@
 import libcst as cst
 import textwrap
 import re
+from libcst.metadata import ExpressionContextProvider as ECP
 
 from .contexts import ctx_inliner
 
 SEP = "___"
+
+
+class ExpressionContextProvider(ECP):
+    def visit_IndentedBlock(self, node):
+        self.visit_Module(node)
 
 
 class EvalException(Exception):
@@ -40,7 +46,9 @@ def make_dict(items):
 
 
 def get_function_locals(f):
-    if f.__closure__ is not None and len(f.__closure__) > 0:
+    if hasattr(f, '__closure__') and \
+       f.__closure__ is not None and \
+       len(f.__closure__) > 0:
         return {
             var: cell.cell_contents
             for var, cell in zip(f.__code__.co_freevars, f.__closure__)

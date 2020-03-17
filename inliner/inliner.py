@@ -4,7 +4,7 @@ import os
 
 from .passes.inline import InlinePass
 from .contexts import ctx_inliner, ctx_pass
-from .common import a2s, get_function_locals, parse_module
+from .common import a2s, get_function_locals, parse_module, EvalException
 from .targets import make_target
 
 FILE_PREFIX = 'TODO'
@@ -24,7 +24,8 @@ class Inliner:
             mod = parse_module(source)
 
         self.module = mod
-        self.globls = globls.copy() if globls is not None else {}
+        self.base_globls = globls.copy() if globls is not None else {}
+        self.cur_globls = self.base_globls.copy()
 
         self.length_inlined = 0
 
@@ -71,6 +72,9 @@ class Inliner:
         return False
 
     def run_pass(self, Pass, **kwargs):
+        self.cur_globls = self.base_globls.copy()
+        exec(self.module.code, self.cur_globls)
+
         with ctx_inliner.set(self):
             pass_ = Pass(**kwargs)
             with ctx_pass.set(pass_):
@@ -89,6 +93,6 @@ class Inliner:
         assert isinstance(code, str)
 
         try:
-            return eval(code, self.globls, self.globls)
+            return eval(code, self.cur_globls, self.cur_globls)
         except Exception as e:
             raise EvalException(e)

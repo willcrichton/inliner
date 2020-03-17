@@ -1,11 +1,12 @@
 import logging as log
 import inspect
 import libcst as cst
+import libcst.matchers as m
 from iterextras import unzip
 
 from .contexts import ctx_inliner, ctx_pass
-from .common import a2s, SEP, make_assign, make_string, make_list, make_dict, parse_statement
-from .visitors import FindAssignments, FindClosedVariables, Rename, ReplaceReturn
+from .common import a2s, SEP, make_assign, make_string, make_list, make_dict, parse_statement, parse_expr
+from .visitors import FindAssignments, FindClosedVariables, Rename, ReplaceReturn, ReplaceYield, ReplaceSuper
 
 
 def bind_arguments(f_ast, call_expr, new_stmts):
@@ -24,7 +25,8 @@ def bind_arguments(f_ast, call_expr, new_stmts):
 
     def rename(src, dst):
         nonlocal f_ast
-        f_ast = f_ast.with_changes(body=f_ast.body.visit(Rename(src, dst)))
+        new_body = cst.MetadataWrapper(f_ast.body).visit(Rename(src, dst))
+        f_ast = f_ast.with_changes(body=new_body)
 
     # Scope a variable name as unique to the function, and update any references
     # to it in the function
@@ -170,6 +172,36 @@ def bind_arguments(f_ast, call_expr, new_stmts):
     return f_ast
 
 
+def replace_super(f_ast, cls, call_expr, call_obj, new_stmts):
+    inliner = ctx_inliner.get()
+
+    # If we don't know what the class is, e.g. in Foo.method(foo), then
+    # eval the LHS of the attribute, e.g. Foo here
+    if cls is None:
+        if m.matches(call_expr.func, m.Attribute()):
+            cls = inliner._eval(call_expr.func.value)
+        else:
+            cls = inliner._eval(call_expr.func).__class__
+
+    # Add import for base class
+    base = cls.__bases__[0]
+
+    # TODO
+    # file_imports = collect_imports(call_obj)
+    # new_stmts.insert(
+    #     0,
+    #     self.generate_imports(base.__name__,
+    #                           base,
+    #                           call_obj=call_obj,
+    #                           file_imports=file_imports))
+
+    # HACK: we're assuming super() always refers to the first base class,
+    # but it actually depends on the specific method being called and the MRO.
+    # THIS IS UNSOUND with multiple inheritance (and potentially even with
+    # basic subtype polymorphism?)
+    return f_ast.visit(ReplaceSuper(base))
+
+
 def inline_function(call_obj,
                     call_expr,
                     ret_var,
@@ -225,24 +257,30 @@ def inline_function(call_obj,
     # for stmt in f_ast.body:
     #     RemoveFunctoolsWraps().visit(stmt)
 
-    # TODO
-    # # If the function is a method (which we proxy by first arg being named "self"),
-    # # then we need to replace uses of special "super" keywords.
-    # args_def = f_ast.args
-    # if len(args_def.params) > 0 and args_def.params[0].arg == 'self':
-    #     self._replace_super(f_ast, cls, call_expr, call_obj, new_stmts)
+    # If the function is a method (which we proxy by first arg being named "self"),
+    # then we need to replace uses of special "super" keywords.
+    args_def = f_ast.params
+    if len(args_def.params) > 0:
+        first_arg_is_self = m.matches(args_def.params[0],
+                                      m.Param(m.Name('self')))
+        if first_arg_is_self:
+            f_ast = replace_super(f_ast, cls, call_expr, call_obj, new_stmts)
 
     # Add bindings from arguments in the call expression to arguments in function def
     f_ast = bind_arguments(f_ast, call_expr, new_stmts)
 
     # Add an explicit return None at the end to reify implicit return
     f_body = f_ast.body
-    if not is_toplevel and not isinstance(f_body.body[-1].body[0], cst.Return):
-        print(f_body.body)
+    last_stmt_is_return = m.matches(f_body.body[-1],
+                                    m.SimpleStatementLine(m.cst.Return()))
+    if (not is_toplevel and  # If function return is being assigned
+            cls is None and  # And not an __init__ fn
+            not last_stmt_is_return):
         f_ast = f_ast.with_deep_changes(f_body,
                                         body=list(f_body.body) +
                                         [parse_statement("return None")])
 
+    # Replace returns with if statements
     f_ast = f_ast.with_changes(body=f_ast.body.visit(ReplaceReturn(ret_var)))
 
     # Inline function body
@@ -272,5 +310,96 @@ def inline_function(call_obj,
     #                                       file_imports=file_imports)
     #         if imprt is not None:
     #             new_stmts.insert(0, imprt)
+
+    return new_stmts
+
+
+def inline_constructor(func_obj, call, ret_var, add_comments=True):
+    """
+    Inlines a class constructor.
+
+    Construction has two parts: creating the object with __new__, and
+    initializing it with __init__. We insert a __new__ call and then
+    inline the __init__ function.
+
+    Example:
+      class Foo:
+        def __init__(self):
+          self.x = 1
+      f = Foo()
+
+      >> becomes >>
+
+      f = Foo.__new__(Foo)
+      self = f
+      self.x = 1
+    """
+    cls_name = func_obj.__name__
+
+    # # Add an import for the class
+    # cls_module = inspect.getmodule(func_obj).__name__
+    # imprt = cst.parse_statement(f'from {cls_module} import {cls_name}')
+
+    # Create a raw object using __new__
+    make_obj = make_assign(
+        cst.Name(ret_var),
+        cst.parse_expression(f'{cls_name}.__new__({cls_name})'))
+
+    # Add the object as an explicit argument to the __init__ function
+    call = call.with_changes(args=[cst.Arg(cst.Name(ret_var))] +
+                             list(call.args))
+
+    if func_obj.__init__ is not object.__init__:
+        # Inline the __init__ function
+        init_inline = inline_function(func_obj.__init__,
+                                      call,
+                                      ret_var,
+                                      cls=func_obj,
+                                      add_comments=add_comments)
+    else:
+        init_inline = []
+
+    return [make_obj] + init_inline
+
+
+def inline_generator(func_obj, call, ret_var, add_comments=True):
+    """
+    Inlines generators (those using yield).
+
+    There is no easy way to proxy generator semantics/control flow
+    without generators, unlike early returns. The simple strategy is to
+    eagerly materialize the generator into a list. However, this is both
+    inefficient and does not always preserve semantics, e.g. see
+    requests.ipynb.
+
+    Example:
+      def foo():
+        for i in range(10):
+          yield i
+      for i in foo():
+         print(i)
+
+      >> becomes >>
+      l = []
+      for i in range(10):
+        l.append(i)
+      for i in l:
+        print(i)
+    """
+    f_ast = parse_statement(inspect.getsource(func_obj))
+
+    # Initialize the list
+    new_stmts = [parse_statement(f'{ret_var} = []')]
+
+    # Replace all yield statements by appending to the list
+    f_ast = f_ast.visit(ReplaceYield(ret_var))
+
+    # Then inline the function as normal
+    new_stmts.extend(
+        inline_function(func_obj,
+                        call,
+                        ret_var,
+                        f_ast=f_ast,
+                        add_comments=add_comments))
 
     return new_stmts
