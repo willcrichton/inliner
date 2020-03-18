@@ -30,7 +30,7 @@ else:
   x = 2"""
 
     class Visitor(cst.CSTVisitor):
-        METADATA_DEPENDENCIES = (IsExecutedProvider
+        METADATA_DEPENDENCIES = (IsExecutedProvider, )
 
     t = Tracer(p, trace_lines=True).trace()
     provider = IsExecutedProvider(t)

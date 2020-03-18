@@ -6,7 +6,7 @@ from iterextras import unzip
 import typing
 import builtins
 
-from .contexts import ctx_inliner, ctx_pass
+from .contexts import ctx_pass, ctx_inliner
 from .common import a2s, SEP, make_assign, make_string, make_list, make_dict, \
     make_index, parse_statement, parse_expr, get_function_locals
 from .visitors import FindAssignments, FindClosedVariables, Rename, \
@@ -15,7 +15,7 @@ from .visitors import FindAssignments, FindClosedVariables, Rename, \
 
 
 def bind_arguments(f_ast, call_expr, new_stmts):
-    inliner = ctx_inliner.get()
+    pass_ = ctx_pass.get()
 
     args_def = f_ast.params
 
@@ -66,7 +66,7 @@ def bind_arguments(f_ast, call_expr, new_stmts):
         star_arg = star_arg.value
 
         # Get the length of the star_arg runtime list
-        star_arg_obj = inliner._eval(star_arg)
+        star_arg_obj = pass_.eval(star_arg)
 
         # Generate an indexing expression for each element of the list
         call_star_args = [
@@ -81,7 +81,7 @@ def bind_arguments(f_ast, call_expr, new_stmts):
                       None)
     if star_kwarg is not None:
         star_kwarg = star_kwarg.value
-        star_kwarg_dict = inliner._eval(star_kwarg)
+        star_kwarg_dict = pass_.eval(star_kwarg)
         call_star_kwarg = {
             key: make_index(star_kwarg, make_string(key))
             for key in star_kwarg_dict.keys()
@@ -180,15 +180,15 @@ def bind_arguments(f_ast, call_expr, new_stmts):
 
 
 def replace_super(f_ast, cls, call, func_obj, new_stmts):
-    inliner = ctx_inliner.get()
+    pass_ = ctx_pass.get()
 
     # If we don't know what the class is, e.g. in Foo.method(foo), then
     # eval the LHS of the attribute, e.g. Foo here
     if cls is None:
         if m.matches(call.func, m.Attribute()):
-            cls = inliner._eval(call.func.value)
+            cls = pass_.eval(call.func.value)
         else:
-            cls = inliner._eval(call.func).__class__
+            cls = pass_.eval(call.func).__class__
 
     # TODO: support multiple inheritance
     # Add import for base class
@@ -491,6 +491,7 @@ def generate_import(name, obj, func_obj, file_imports):
     Generate an import statement for a (name, runtime object) pair.
     """
     inliner = ctx_inliner.get()
+    pass_ = ctx_pass.get()
 
     # HACK? is this still needed?
     if name == 'self':
