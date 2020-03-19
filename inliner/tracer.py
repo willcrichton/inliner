@@ -113,12 +113,28 @@ class Tracer:
         return self
 
 
-class IsExecutedProvider(cst.BatchableMetadataProvider):
+class IsExecutedVisitor(cst.CSTVisitor):
     METADATA_DEPENDENCIES = (PositionProvider, )
 
     def __init__(self, tracer):
         super().__init__()
         self.tracer = tracer
+        assert self.tracer.trace_lines, "Tracer was not executed with trace_lines=True"
+        self.is_execed = {}
 
     def on_visit(self, node):
         pos = self.get_metadata(PositionProvider, node)
+        lines = list(range(pos.start.line, pos.end.line + 1))
+        is_execed = any(
+            [self.tracer.execed_lines.get(line, 0) > 0 for line in lines])
+        self.is_execed[node] = is_execed
+        return super().on_visit(node)
+
+
+def get_execed_map(mod, tracer):
+    visitor = IsExecutedVisitor(tracer)
+    # unsafe_skip_copy to ensure that nodes in map are pointer-equivalent
+    # to input mod
+    wrapper = cst.MetadataWrapper(mod, unsafe_skip_copy=True)
+    wrapper.visit(visitor)
+    return visitor.is_execed
