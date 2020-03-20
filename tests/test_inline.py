@@ -1,35 +1,14 @@
-from inliner import Inliner
-from inliner.common import parse_module
 from inliner.targets import make_target
-from inliner.passes.inline import InlinePass
-import difflib
-import inspect
 import functools
 
+from utils import run_pass_harness
 
-def harness(prog, target, outp, locls, fixpoint=False):
-    i = Inliner(prog, globls=locls)
+
+def run_inline_harness(prog, target, outp, locls, **kwargs):
     targets = [make_target(t) for t in target] if isinstance(
         target, list) else [make_target(target)]
-
-    if fixpoint:
-        i.fixpoint(i.inline, targets, add_comments=False)
-    else:
-        i.inline(targets, add_comments=False)
-
-    outp_module = i.module.with_changes(body=parse_module(outp).body)
-
-    # Print debug information if unexpected output
-    if not outp_module.deep_equals(i.module):
-        print('GENERATED')
-        print(i.module.code)
-        print('=' * 30)
-        print('TARGET')
-        print(outp_module.code)
-        assert False
-
-    # Make sure we don't violate any assertions
-    exec(i.module.code, locls, locls)
+    method = lambda i: lambda: i.inline(targets)
+    return run_pass_harness(prog, method, outp, locls, **kwargs)
 
 
 def test_inline_basic():
@@ -46,7 +25,7 @@ if "target_ret" not in globals():
 assert target_ret == 2
 """
 
-    harness(prog, target, outp, locals())
+    run_inline_harness(prog, target, outp, locals())
 
 
 def test_inline_args():
@@ -79,7 +58,7 @@ if "target_ret" not in globals():
 target_ret
 """
 
-    harness(prog, target, outp, locals())
+    run_inline_harness(prog, target, outp, locals())
 
 
 def test_inline_nested():
@@ -98,7 +77,7 @@ if "target_ret_2" not in globals():
 assert target_ret_2 == 3
 """
 
-    harness(prog, target, outp, locals())
+    run_inline_harness(prog, target, outp, locals())
 
 
 def test_inline_return():
@@ -127,7 +106,7 @@ if "target_ret" not in globals():
 assert target_ret == 1
 """
 
-    harness(prog, target, outp, locals())
+    run_inline_harness(prog, target, outp, locals())
 
 
 def test_inline_class_constructor():
@@ -147,7 +126,7 @@ t = Test_ret
 assert t.x == 1
 """
 
-    harness(prog, Test, outp, locals())
+    run_inline_harness(prog, Test, outp, locals())
 
 
 def test_inline_class_method():
@@ -172,7 +151,7 @@ if "foo_ret" not in globals():
 assert foo_ret == 2
 """
 
-    harness(prog, Test, outp, locals())
+    run_inline_harness(prog, Test, outp, locals())
 
 
 def test_inline_class_super():
@@ -197,7 +176,7 @@ b = B_ret
 assert b.x + b.y == 2
 """
 
-    harness(prog, B, outp, locals())
+    run_inline_harness(prog, B, outp, locals())
 
 
 def test_inline_generator():
@@ -219,7 +198,7 @@ for i, j in zip(gen_ret, range(10)):
     assert i == j
 """
 
-    harness(prog, gen, outp, locals())
+    run_inline_harness(prog, gen, outp, locals())
 
 
 def test_inline_import():
@@ -236,7 +215,7 @@ if "use_json_ret" not in globals():
 use_json_ret
 """
 
-    harness(prog, api, outp, locals())
+    run_inline_harness(prog, api, outp, locals())
 
 
 def test_inline_import_same_file():
@@ -252,7 +231,7 @@ if "nested_reference_ret" not in globals():
 assert nested_reference_ret == 1
 """
 
-    harness(prog, nested_reference, outp, locals())
+    run_inline_harness(prog, nested_reference, outp, locals())
 
 
 def test_inline_property():
@@ -289,7 +268,7 @@ if "bar_5" not in globals():
     bar_5 = t.foo
 assert bar_5 == 2"""
 
-    harness(prog, Target, outp, locals())
+    run_inline_harness(prog, Target, outp, locals())
 
 
 def test_inline_decorator():
@@ -324,7 +303,10 @@ if "dec_test_ret_ret" not in globals():
 function_decorator_ret = dec_test_ret_ret
 assert function_decorator_ret == 4"""
 
-    harness(prog, [function_decorator, dec_test], outp, locals(), fixpoint=True)
+    run_inline_harness(prog, [function_decorator, dec_test],
+                       outp,
+                       locals(),
+                       fixpoint=True)
 
 
 def test_inline_comprehension():
@@ -342,4 +324,4 @@ l = [target(i) for i in range(3)]
 assert sum(l) == 6
 """
 
-    harness(prog, target, outp, locals())
+    run_inline_harness(prog, target, outp, locals())

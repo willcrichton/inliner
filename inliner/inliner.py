@@ -8,7 +8,7 @@ from .targets import make_target
 
 
 class Inliner:
-    def __init__(self, program, globls=None):
+    def __init__(self, program, globls=None, add_comments=True):
         if type(program) is not str:
             assert inspect.isfunction(program)
             if globls is None and hasattr(program, '__globals__'):
@@ -24,6 +24,7 @@ class Inliner:
         self.base_globls = globls.copy() if globls is not None else {}
         self.cur_globls = self.base_globls.copy()
 
+        self.add_comments = add_comments
         self.length_inlined = 0
 
     def run_pass(self, Pass, **kwargs):

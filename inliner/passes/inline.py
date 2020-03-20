@@ -10,25 +10,16 @@ from .. import transforms
 class InlinePass(BasePass):
     tracer_args = {}
 
-    def __init__(self, add_comments=True):
-        super().__init__()
-        self.add_comments = add_comments
-
     def _inline(self, ret_var, call, func_obj):
         if inspect.isgeneratorfunction(func_obj):
-            new_stmts = transforms.inline_generator(
-                func_obj, call, ret_var, add_comments=self.add_comments)
+            new_stmts = transforms.inline_generator(func_obj, call, ret_var)
         elif inspect.isfunction(func_obj):
-            new_stmts = transforms.inline_function(
-                func_obj, call, ret_var, add_comments=self.add_comments)
+            new_stmts = transforms.inline_function(func_obj, call, ret_var)
         elif inspect.isclass(func_obj):
-            new_stmts = transforms.inline_constructor(
-                func_obj, call, ret_var, add_comments=self.add_comments)
+            new_stmts = transforms.inline_constructor(func_obj, call, ret_var)
         elif inspect.ismethod(func_obj):
-            new_stmts = transforms.inline_method(func_obj,
-                                                 call,
-                                                 ret_var,
-                                                 add_comments=self.add_comments)
+            new_stmts = transforms.inline_method(func_obj, call, ret_var)
+
         else:
             raise NotImplemented
 
@@ -157,7 +148,9 @@ class InlinePass(BasePass):
         return assgn
 
     def on_visit(self, node):
+        ret = super().on_visit(node)
+
         if isinstance(node, cst.BaseComp):
             return False
 
-        return super().on_visit(node)
+        return ret

@@ -1,61 +1,47 @@
 import libcst as cst
 import libcst.matchers as m
+from libcst.codemod import CodemodContext
 from libcst.metadata import ExpressionContext
 from collections import defaultdict
 from collections.abc import Iterable
 import inspect
 
+from .insert_statements import InsertStatementsVisitor
 from .common import make_assign, parse_module, parse_statement, parse_expr, a2s, ExpressionContextProvider
 
 
-class RemoveEmptyBlocks(cst.CSTTransformer):
+class RemoveEmptyBlocks(InsertStatementsVisitor):
+    def __init__(self):
+        super().__init__(CodemodContext())
+
+    def leave_If(self, original_node, updated_node):
+        if (updated_node.orelse is not None
+                and len(updated_node.orelse.body.body) == 0):
+            updated_node = updated_node.with_changes(orelse=None)
+
+        return super().leave_If(original_node, updated_node)
+
+    def on_leave(self, original_node, updated_node):
+        final_node = super().on_leave(original_node, updated_node)
+
+        if isinstance(final_node,
+                      (cst.SimpleStatementLine, cst.SimpleStatementSuite)):
+            if len(final_node.body) == 0:
+                return cst.RemoveFromParent()
+
+        elif isinstance(final_node, cst.BaseCompoundStatement):
+            if len(final_node.body.body) == 0:
+                return cst.RemoveFromParent()
+
+        return final_node
+
+
+class ReplaceReturn(RemoveEmptyBlocks):
     statement_types = (cst.SimpleStatementLine, cst.SimpleStatementSuite,
                        cst.BaseCompoundStatement)
 
     block_types = (cst.IndentedBlock, cst.Module)
 
-    def on_leave(self, old_node, new_node):
-        new_node = super().on_leave(old_node, new_node)
-        if isinstance(new_node,
-                      (cst.SimpleStatementLine, cst.SimpleStatementSuite)):
-            if len(new_node.body) == 0:
-                return cst.RemovalSentinel.REMOVE
-
-        elif isinstance(new_node, cst.BaseCompoundStatement):
-            if len(new_node.body.body) == 0:
-                return cst.RemovelSentinel.REMOVE
-
-        return new_node
-
-
-class StatementInserter(RemoveEmptyBlocks):
-    def __init__(self):
-        self._new_stmts = []
-
-    def insert_statements_before_current(self, stmts):
-        self._new_stmts[-1].extend(stmts)
-
-    def on_visit(self, node):
-        if isinstance(node, self.block_types):
-            self._new_stmts.append([])
-
-        return super().on_visit(node)
-
-    def on_leave(self, old_node, new_node):
-        new_node = super().on_leave(old_node, new_node)
-
-        if isinstance(old_node, self.block_types):
-            assert type(old_node) is type(new_node)
-            new_node = new_node.with_changes(body=self._new_stmts.pop())
-
-        elif isinstance(old_node, self.statement_types):
-            if new_node is not cst.RemovalSentinel.REMOVE:
-                self._new_stmts[-1].append(new_node)
-
-        return new_node
-
-
-class ReplaceReturn(StatementInserter):
     def __init__(self, name):
         super().__init__()
         self.name = name
@@ -77,6 +63,7 @@ if "{name}" not in globals():
         return ret
 
     def visit_FunctionDef(self, fdef):
+        super().visit_FunctionDef(fdef)
         return False
 
     def on_leave(self, old_node, new_node):

@@ -262,7 +262,6 @@ def inline_function(func_obj,
                     ret_var,
                     cls=None,
                     f_ast=None,
-                    add_comments=True,
                     is_toplevel=False):
     log.debug('Inlining {}'.format(a2s(call)))
 
@@ -341,7 +340,7 @@ def inline_function(func_obj,
     imports = generate_imports_for_nonlocals(f_ast, func_obj, call)
     new_stmts = imports + new_stmts
 
-    if add_comments:
+    if inliner.add_comments:
         # Add header comment to first statement
         header_comment = cst.Comment(f'# {a2s(call)}')
         first_stmt = new_stmts[0]
@@ -353,7 +352,7 @@ def inline_function(func_obj,
     return new_stmts
 
 
-def inline_constructor(func_obj, call, ret_var, add_comments=True):
+def inline_constructor(func_obj, call, ret_var):
     """
     Inlines a class constructor.
 
@@ -393,15 +392,14 @@ def inline_constructor(func_obj, call, ret_var, add_comments=True):
         init_inline = inline_function(func_obj.__init__,
                                       call,
                                       ret_var,
-                                      cls=func_obj,
-                                      add_comments=add_comments)
+                                      cls=func_obj)
     else:
         init_inline = []
 
     return [make_obj] + init_inline
 
 
-def inline_method(func_obj, call, ret_var, add_comments=True):
+def inline_method(func_obj, call, ret_var):
     """
     Replace bound methods with unbound functions.
 
@@ -437,13 +435,10 @@ def inline_method(func_obj, call, ret_var, add_comments=True):
                                  args=[cst.Arg(call.func.value)] +
                                  list(call.args))
 
-    return inline_function(func_obj.__func__,
-                           new_call,
-                           ret_var,
-                           add_comments=add_comments)
+    return inline_function(func_obj.__func__, new_call, ret_var)
 
 
-def inline_generator(func_obj, call, ret_var, add_comments=True):
+def inline_generator(func_obj, call, ret_var):
     """
     Inlines generators (those using yield).
 
@@ -476,13 +471,7 @@ def inline_generator(func_obj, call, ret_var, add_comments=True):
     f_ast = f_ast.visit(ReplaceYield(ret_var))
 
     # Then inline the function as normal
-    new_stmts.extend(
-        inline_function(func_obj,
-                        call,
-                        ret_var,
-                        f_ast=f_ast,
-                        add_comments=add_comments))
-
+    new_stmts.extend(inline_function(func_obj, call, ret_var, f_ast=f_ast))
     return new_stmts
 
 

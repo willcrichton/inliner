@@ -4,12 +4,12 @@ import inspect
 from collections import defaultdict
 
 from ..common import a2s, EvalException
-from ..visitors import StatementInserter
+from ..visitors import RemoveEmptyBlocks
 from ..contexts import ctx_inliner
 from ..tracer import Tracer, TRACER_FILE_PREFIX
 
 
-class BasePass(StatementInserter):
+class BasePass(RemoveEmptyBlocks):
     tracer_args = None
 
     def __init__(self):
@@ -23,6 +23,9 @@ class BasePass(StatementInserter):
                                  **self.tracer_args).trace()
 
         self.after_init()
+
+    def after_init(self):
+        pass
 
     def eval(self, code):
         if isinstance(code, cst.CSTNode):
@@ -75,9 +78,6 @@ class BasePass(StatementInserter):
 
         return False
 
-    def after_init(self):
-        pass
-
     def fresh_var(self, prefix):
         """
         Creates a new variable semi-guaranteed to not exist in the program.
@@ -90,5 +90,6 @@ class BasePass(StatementInserter):
             return f'{prefix}_{count}'
 
     def visit_FunctionDef(self, fdef):
+        super().visit_FunctionDef(fdef)
         # Don't recurse into inline function definitions
         return False
