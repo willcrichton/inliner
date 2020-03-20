@@ -5,6 +5,8 @@ import dis
 import libcst as cst
 from libcst.metadata import PositionProvider
 
+from .common import parse_statement
+
 TRACER_FILE_PREFIX = 'inline'
 
 
@@ -30,6 +32,45 @@ class FrameAnalyzer:
         return self._instr_lookup[self.frame.f_lasti]
 
 
+class InsertDummyTransformer(cst.CSTTransformer):
+    def __init__(self):
+        super().__init__()
+        self.node_map = {}
+
+    def leave_IndentedBlock(self, original_node, updated_node):
+        read_stmt = parse_statement("__name__")
+        return updated_node.with_changes(body=[read_stmt] +
+                                         list(updated_node.body))
+
+    def on_leave(self, original_node, updated_node):
+        final_node = super().on_leave(original_node, updated_node)
+        self.node_map[final_node] = original_node
+        return final_node
+
+
+class ExecCountsVisitor(cst.CSTVisitor):
+    METADATA_DEPENDENCIES = (PositionProvider, )
+
+    def __init__(self, tracer):
+        super().__init__()
+        self.tracer = tracer
+        self.exec_counts = {}
+
+    def get_exec_counts(self, node):
+        pos = self.get_metadata(PositionProvider, node)
+        lines = list(range(pos.start.line, pos.end.line + 1))
+        return [self.tracer.execed_lines.get(line, 0) for line in lines]
+
+    def on_visit(self, node):
+        if isinstance(node, (cst.Module, cst.IndentedBlock)):
+            first_stmt_count = self.get_exec_counts(node.body[0])
+            self.exec_counts[node] = max(first_stmt_count)
+        else:
+            exec_counts = self.get_exec_counts(node)
+            self.exec_counts[node] = max(exec_counts)
+        return super().on_visit(node)
+
+
 class Tracer:
     """
     Executes a program and collects information about loads, stores, and executed lines.
@@ -39,12 +80,15 @@ class Tracer:
     read_instrs = set(['LOAD_NAME', 'LOAD_FAST', 'LOAD_GLOBAL'])
 
     def __init__(self,
-                 prog,
+                 module,
                  globls=None,
                  trace_lines=False,
                  trace_reads=False,
                  debug=False):
-        self.prog = prog
+        self.module = module
+        transformer = InsertDummyTransformer()
+        self.transformed_module = self.module.visit(transformer)
+        self.node_map = transformer.node_map
         self.reads = defaultdict(list)
         self.stores = defaultdict(list)
         self.execed_lines = defaultdict(int)
@@ -78,6 +122,23 @@ class Tracer:
 
         return self._trace_fn
 
+    def exec_counts(self):
+        assert self.trace_lines, "Tracer was not executed with trace_lines=True"
+
+        visitor = ExecCountsVisitor(self)
+
+        # unsafe_skip_copy to ensure that nodes in map are pointer-equivalent
+        # to input mod
+        wrapper = cst.MetadataWrapper(self.transformed_module,
+                                      unsafe_skip_copy=True)
+        wrapper.visit(visitor)
+
+        exec_counts = visitor.exec_counts
+        return {
+            self.node_map[k]: v
+            for k, v in exec_counts.items() if k in self.node_map
+        }
+
     def trace(self):
         """
         Execute the provided program.
@@ -87,13 +148,14 @@ class Tracer:
         the filename.
         """
         with NamedTemporaryFile(delete=False, prefix=TRACER_FILE_PREFIX) as f:
-            f.write(self.prog.encode('utf-8'))
+            prog = self.transformed_module.code
+            f.write(prog.encode('utf-8'))
             f.flush()
             self._fname = f.name
 
             should_trace = self.trace_lines or self.trace_reads
             try:
-                prog_bytecode = compile(self.prog, f.name, 'exec')
+                prog_bytecode = compile(prog, f.name, 'exec')
 
                 if should_trace:
                     sys.settrace(self._trace_fn)
@@ -107,34 +169,7 @@ class Tracer:
                 if should_trace:
                     sys.settrace(None)
             except Exception:
-                print(self.prog)
+                print(prog)
                 raise
 
         return self
-
-
-class IsExecutedVisitor(cst.CSTVisitor):
-    METADATA_DEPENDENCIES = (PositionProvider, )
-
-    def __init__(self, tracer):
-        super().__init__()
-        self.tracer = tracer
-        assert self.tracer.trace_lines, "Tracer was not executed with trace_lines=True"
-        self.is_execed = {}
-
-    def on_visit(self, node):
-        pos = self.get_metadata(PositionProvider, node)
-        lines = list(range(pos.start.line, pos.end.line + 1))
-        is_execed = any(
-            [self.tracer.execed_lines.get(line, 0) > 0 for line in lines])
-        self.is_execed[node] = is_execed
-        return super().on_visit(node)
-
-
-def get_execed_map(mod, tracer):
-    visitor = IsExecutedVisitor(tracer)
-    # unsafe_skip_copy to ensure that nodes in map are pointer-equivalent
-    # to input mod
-    wrapper = cst.MetadataWrapper(mod, unsafe_skip_copy=True)
-    wrapper.visit(visitor)
-    return visitor.is_execed

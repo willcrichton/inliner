@@ -16,12 +16,6 @@ class BasePass(RemoveEmptyBlocks):
         super().__init__()
         self.inliner = ctx_inliner.get()
         self.generated_vars = defaultdict(int)
-
-        if self.tracer_args is not None:
-            self.tracer = Tracer(self.inliner.module.code,
-                                 globls=self.inliner.base_globls,
-                                 **self.tracer_args).trace()
-
         self.after_init()
 
     def after_init(self):
@@ -93,3 +87,10 @@ class BasePass(RemoveEmptyBlocks):
         super().visit_FunctionDef(fdef)
         # Don't recurse into inline function definitions
         return False
+
+    def visit_Module(self, mod):
+        super().visit_Module(mod)
+        if self.tracer_args is not None:
+            self.tracer = Tracer(mod,
+                                 globls=self.inliner.base_globls,
+                                 **self.tracer_args).trace()
