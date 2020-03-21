@@ -1,14 +1,16 @@
 import libcst as cst
 import libcst.matchers as m
 import inspect
+from typing import Optional, Union
 
 from .base_pass import BasePass
 from ..common import a2s, EvalException, get_function_locals, parse_statement, parse_expr
 from .. import transforms
+from ..tracer import TracerArgs
 
 
 class InlinePass(BasePass):
-    tracer_args = {}
+    tracer_args = TracerArgs()
 
     def _inline(self, ret_var, call, func_obj):
         if inspect.isgeneratorfunction(func_obj):
@@ -52,7 +54,8 @@ class InlinePass(BasePass):
 
         return not_higher_order and self.should_inline(func)
 
-    def leave_Call(self, _, call):
+    def leave_Call(self, original_node, updated_node) -> cst.BaseExpression:
+        call = updated_node
         func = call.func
 
         try:
@@ -95,7 +98,9 @@ class InlinePass(BasePass):
 
     # Classes using @property have accessors that are actually calling
     # functions. This visitor looks for uses of @property.
-    def leave_Attribute(self, _, attr):
+    def leave_Attribute(self, original_node,
+                        updated_node) -> cst.BaseExpression:
+        attr = updated_node
         ret = self._is_property(attr)
         if ret is not None:
             (prop, prop_obj) = ret
@@ -120,14 +125,16 @@ class InlinePass(BasePass):
         return m.matches(assgn,
                          m.Assign(targets=[m.AssignTarget(m.Attribute())]))
 
-    def visit_Assign(self, assgn):
+    def visit_Assign(self, node) -> Optional[bool]:
         # Don't allow visitor to recurse onto LHS of a property assignment
-        if self._is_property_fset(assgn):
+        if self._is_property_fset(node):
             return False
 
     # Also check for @property assignments, e.g. t.x = 1 where this calls
     # a setter
-    def leave_Assign(self, _, assgn):
+    def leave_Assign(self, original_node, updated_node
+                     ) -> Union[cst.BaseSmallStatement, cst.RemovalSentinel]:
+        assgn = updated_node
         if self._is_property_fset(assgn):
             target = assgn.targets[0].target
             ret = self._is_property(target)
@@ -147,7 +154,7 @@ class InlinePass(BasePass):
 
         return assgn
 
-    def on_visit(self, node):
+    def on_visit(self, node) -> bool:
         ret = super().on_visit(node)
 
         if isinstance(node, cst.BaseComp):

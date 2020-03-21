@@ -289,17 +289,18 @@ def test_inline_decorator():
     outp = """
 def function_decorator(x):
     return x + 1
+f___dec_test = function_decorator
 def newf(*args, **kwargs):
-    return function_decorator(*args, **kwargs) + 2
+    return f___dec_test(*args, **kwargs) + 2
 if "dec_test_ret" not in globals():
     dec_test_ret = newf
 args___newf = [1]
 kwargs___newf = {}
 if "dec_test_ret_ret" not in globals():
     x___function_decorator = args___newf[0]
-    if "function_decorator_ret" not in globals():
-        function_decorator_ret = x___function_decorator + 1
-    dec_test_ret_ret = function_decorator_ret + 2
+    if "f___dec_test_ret" not in globals():
+        f___dec_test_ret = x___function_decorator + 1
+    dec_test_ret_ret = f___dec_test_ret + 2
 function_decorator_ret = dec_test_ret_ret
 assert function_decorator_ret == 4"""
 

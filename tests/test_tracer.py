@@ -1,4 +1,4 @@
-from inliner.tracer import Tracer
+from inliner.tracer import Tracer, InsertDummyTransformer, TracerArgs
 import libcst as cst
 
 
@@ -11,6 +11,33 @@ assert x == 1
     assert t.globls['x'] == 1
 
 
+def test_tracer_insert_dummy():
+    p = """
+for x in range(10):
+    if True:
+        x = 1
+    else:
+        x = 2
+"""
+
+    mod = cst.parse_module(p)
+    mod = mod.visit(InsertDummyTransformer())
+
+    outp = """
+for x in range(10):
+    __name__
+    if True:
+        __name__
+        x = 1
+    else:
+        __name__
+        x = 2
+"""
+
+    outp_mod = mod.with_changes(body=cst.parse_module(outp).body)
+    assert mod.deep_equals(outp_mod)
+
+
 def test_tracer_exec_counts():
     p = """
 if True:
@@ -19,7 +46,7 @@ else:
   x = 2"""
 
     mod = cst.parse_module(p)
-    tracer = Tracer(mod, trace_lines=True).trace()
+    tracer = Tracer(mod, args=TracerArgs(trace_lines=True)).trace()
     exec_counts = tracer.exec_counts()
 
     def is_execed(n):
@@ -43,7 +70,7 @@ for x in range(10):
 """
 
     mod = cst.parse_module(p)
-    tracer = Tracer(mod, trace_lines=True).trace()
+    tracer = Tracer(mod, args=TracerArgs(trace_lines=True)).trace()
     exec_counts = tracer.exec_counts()
 
     assert exec_counts[mod.body[0]] == 11

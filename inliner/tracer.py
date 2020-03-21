@@ -4,10 +4,14 @@ import sys
 import dis
 import libcst as cst
 from libcst.metadata import PositionProvider
+from typing import NamedTuple, Dict, Optional, Any
 
 from .common import parse_statement
 
 TRACER_FILE_PREFIX = 'inline'
+
+ExecCounts = Dict[cst.CSTNode, int]
+Globals = Dict[str, Any]
 
 
 def compile_and_exec(code, globls):
@@ -37,7 +41,10 @@ class InsertDummyTransformer(cst.CSTTransformer):
         super().__init__()
         self.node_map = {}
 
-    def leave_IndentedBlock(self, original_node, updated_node):
+    def visit_FunctionDef(self, node) -> bool:
+        return False
+
+    def leave_IndentedBlock(self, original_node, updated_node) -> cst.BaseSuite:
         read_stmt = parse_statement("__name__")
         return updated_node.with_changes(body=[read_stmt] +
                                          list(updated_node.body))
@@ -61,7 +68,7 @@ class ExecCountsVisitor(cst.CSTVisitor):
         lines = list(range(pos.start.line, pos.end.line + 1))
         return [self.tracer.execed_lines.get(line, 0) for line in lines]
 
-    def on_visit(self, node):
+    def on_visit(self, node) -> bool:
         if isinstance(node, (cst.Module, cst.IndentedBlock)):
             first_stmt_count = self.get_exec_counts(node.body[0])
             self.exec_counts[node] = max(first_stmt_count)
@@ -71,6 +78,12 @@ class ExecCountsVisitor(cst.CSTVisitor):
         return super().on_visit(node)
 
 
+class TracerArgs(NamedTuple):
+    trace_lines: bool = False
+    trace_reads: bool = False
+    debug: bool = False
+
+
 class Tracer:
     """
     Executes a program and collects information about loads, stores, and executed lines.
@@ -78,13 +91,14 @@ class Tracer:
 
     store_instrs = set(['STORE_NAME', 'STORE_FAST', 'STORE_GLOBAL'])
     read_instrs = set(['LOAD_NAME', 'LOAD_FAST', 'LOAD_GLOBAL'])
+    globls: Globals
 
     def __init__(self,
                  module,
-                 globls=None,
-                 trace_lines=False,
-                 trace_reads=False,
-                 debug=False):
+                 globls: Optional[Globals] = None,
+                 args: Optional[TracerArgs] = None):
+        if args is None:
+            args = TracerArgs()
         self.module = module
         transformer = InsertDummyTransformer()
         self.transformed_module = self.module.visit(transformer)
@@ -92,8 +106,8 @@ class Tracer:
         self.reads = defaultdict(list)
         self.stores = defaultdict(list)
         self.execed_lines = defaultdict(int)
-        self.trace_lines = trace_lines
-        self.trace_reads = trace_reads
+        self.trace_lines = args.trace_lines
+        self.trace_reads = args.trace_reads
         self._frame_analyzer = None
         self.globls = globls.copy() if globls is not None else {}
 
@@ -122,7 +136,7 @@ class Tracer:
 
         return self._trace_fn
 
-    def exec_counts(self):
+    def exec_counts(self) -> ExecCounts:
         assert self.trace_lines, "Tracer was not executed with trace_lines=True"
 
         visitor = ExecCountsVisitor(self)

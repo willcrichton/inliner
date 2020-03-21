@@ -5,6 +5,7 @@ from libcst.metadata import ExpressionContext
 from collections import defaultdict
 from collections.abc import Iterable
 import inspect
+from typing import Union, Optional, Dict
 
 from .insert_statements import InsertStatementsVisitor
 from .common import make_assign, parse_module, parse_statement, parse_expr, a2s, ExpressionContextProvider
@@ -14,7 +15,8 @@ class RemoveEmptyBlocks(InsertStatementsVisitor):
     def __init__(self):
         super().__init__(CodemodContext())
 
-    def leave_If(self, original_node, updated_node):
+    def leave_If(self, original_node,
+                 updated_node) -> Union[cst.BaseStatement, cst.RemovalSentinel]:
         if (updated_node.orelse is not None
                 and len(updated_node.orelse.body.body) == 0):
             updated_node = updated_node.with_changes(orelse=None)
@@ -55,15 +57,17 @@ if "{name}" not in globals():
         return self.if_wrapper.with_deep_changes(self.if_wrapper.body,
                                                  body=body)
 
-    def leave_Return(self, _, ret):
+    def leave_Return(self, original_node, updated_node
+                     ) -> Union[cst.BaseSmallStatement, cst.RemovalSentinel]:
+        ret = updated_node
         # A naked return (without a value) will have ret.value = None
         value = ret.value if ret.value is not None else cst.Name('None')
         if_stmt = self._build_if([make_assign(cst.Name(self.name), value)])
         self.insert_statements_before_current([if_stmt])
         return ret
 
-    def visit_FunctionDef(self, fdef):
-        super().visit_FunctionDef(fdef)
+    def visit_FunctionDef(self, node) -> bool:
+        super().visit_FunctionDef(node)
         return False
 
     def on_leave(self, old_node, new_node):
@@ -110,8 +114,8 @@ class FindAssignments(cst.CSTVisitor):
     def __init__(self):
         self.names = set()
 
-    def visit_Assign(self, assgn):
-        for t in assgn.targets:
+    def visit_Assign(self, node) -> Optional[bool]:
+        for t in node.targets:
             if m.matches(t, m.Name()):
                 self.names.add(t.value)
 
@@ -123,17 +127,20 @@ class FindClosedVariables(cst.CSTVisitor):
         self.vars = set()
         self.in_closure = 0
 
-    def visit_Name(self, name):
+    def visit_Name(self, node) -> Optional[bool]:
         if self.in_closure > 0:
-            self.vars.add(name.value)
+            self.vars.add(node.value)
+        return super().visit_Name(node)
 
-    def on_visit(self, node):
+    def on_visit(self, node) -> bool:
         if isinstance(node, self.closure_nodes):
             self.in_closure += 1
+        return super().on_visit(node)
 
-    def on_leave(self, node):
-        if isinstance(node, self.closure_nodes):
+    def on_leave(self, original_node) -> None:
+        if isinstance(original_node, self.closure_nodes):
             self.in_closure -= 1
+        return super().on_leave(original_node)
 
 
 class UsedNames(cst.CSTVisitor):
@@ -142,14 +149,14 @@ class UsedNames(cst.CSTVisitor):
     def __init__(self):
         self.names = set()
 
-    def visit_Name(self, name):
+    def visit_Name(self, node) -> None:
         try:
-            expr_ctx = self.get_metadata(ExpressionContextProvider, name)
+            expr_ctx = self.get_metadata(ExpressionContextProvider, node)
         except KeyError:
             return
 
         if expr_ctx == ExpressionContext.LOAD:
-            self.names.add(name.value)
+            self.names.add(node.value)
 
 
 class Rename(cst.CSTTransformer):
@@ -159,7 +166,8 @@ class Rename(cst.CSTTransformer):
         self.src = src
         self.dst = dst
 
-    def visit_FunctionDef(self, fdef):
+    def visit_FunctionDef(self, node) -> Optional[bool]:
+        fdef = node
         if fdef.name.value != self.src:
             params = fdef.params
             arg_names = set()
@@ -172,67 +180,72 @@ class Rename(cst.CSTTransformer):
 
             return self.src not in arg_names
 
-    def leave_Name(self, old_name, new_name):
+    def leave_Name(self, original_node, updated_node) -> cst.BaseExpression:
         try:
-            expr_ctx = self.get_metadata(ExpressionContextProvider, old_name)
+            expr_ctx = self.get_metadata(ExpressionContextProvider,
+                                         original_node)
         except KeyError:
-            return new_name
+            return updated_node
 
-        if expr_ctx == ExpressionContext.LOAD and new_name.value == self.src:
-            return new_name.with_changes(value=self.dst)
+        if expr_ctx == ExpressionContext.LOAD and updated_node.value == self.src:
+            return updated_node.with_changes(value=self.dst)
 
-        return new_name
+        return updated_node
 
 
 class ReplaceYield(cst.CSTTransformer):
     def __init__(self, ret_var):
         self.ret_var = ret_var
 
-    def leave_Yield(self, old_expr, new_expr):
+    def leave_Yield(self, original_node, updated_node) -> cst.BaseExpression:
         append = parse_expr(f'{self.ret_var}.append()')
-        return append.with_changes(args=[cst.Arg(new_expr.value)])
+        return append.with_changes(args=[cst.Arg(updated_node.value)])
 
 
 class ReplaceSuper(cst.CSTTransformer):
     def __init__(self, cls):
         self.cls = cls
 
-    def leave_Call(self, _, new_call):
-        if m.matches(new_call.func, m.Attribute(value=m.Call(m.Name('super')))):
-            return new_call \
+    def leave_Call(self, original_node, updated_node) -> cst.BaseExpression:
+        if m.matches(updated_node.func,
+                     m.Attribute(value=m.Call(m.Name('super')))):
+            return updated_node \
                 .with_deep_changes(
-                    new_call.func, value=cst.Name(self.cls.__name__)) \
+                    updated_node.func, value=cst.Name(self.cls.__name__)) \
                 .with_changes(
-                    args=[cst.Arg(cst.Name('self'))] + list(new_call.args))
+                    args=[cst.Arg(cst.Name('self'))] + list(updated_node.args))
 
-        return new_call
+        return updated_node
 
 
 class CollectImports(cst.CSTVisitor):
+    imprts: Dict[str, cst.BaseSmallStatement]
+    mod: str
+
     def __init__(self, mod):
         self.imprts = {}
         self.mod = mod
 
-    def visit_Import(self, imprt):
-        for alias in imprt.names:
+    def visit_Import(self, node) -> None:
+        for alias in node.names:
             name = alias.asname.name.value if alias.asname is not None else alias.name.value
             self.imprts[name] = cst.Import(names=[alias])
 
-    def visit_ImportFrom(self, imprt):
-        for alias in imprt.names:
+    def visit_ImportFrom(self, node) -> None:
+        for alias in node.names:
             name = alias.asname.value if alias.asname is not None else alias.name.value
 
-            level = len(imprt.relative)
+            level = len(node.relative)
             if level > 0:
                 parts = self.mod.split('.')
                 mod_level = '.'.join(
                     parts[:-level]) if len(parts) > 1 else parts[0]
-                if imprt.module is not None:
-                    module = parse_expr(f'{mod_level}.{a2s(imprt.module)}')
+                if node.module is not None:
+                    module = parse_expr(f'{mod_level}.{a2s(node.module)}')
                 else:
                     module = parse_expr(mod_level)
             else:
-                module = imprt.module
+                module = node.module
 
             self.imprts[name] = cst.ImportFrom(module=module, names=[alias])
 
@@ -249,7 +262,9 @@ def collect_imports(obj):
 
 
 class RemoveFunctoolsWraps(cst.CSTTransformer):
-    def leave_FunctionDef(self, _, fdef):
+    def leave_FunctionDef(self, original_node,
+                          updated_node) -> cst.BaseStatement:
+        fdef = updated_node
         ftool_pattern = m.Call(
             func=m.Attribute(value=m.Name("functools"), attr=m.Name("wraps")))
         if len(fdef.decorators) == 1:

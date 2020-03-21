@@ -84,3 +84,27 @@ for i in range(10):
 """
 
     run_pass_harness(prog, DeadCodePass, outp, locals())
+
+
+def test_deadcode_try_except():
+    def prog():
+        try:
+            raise KeyError()
+        except KeyError:
+            x = 1
+
+    outp = "x = 1"
+
+    run_pass_harness(prog, DeadCodePass, outp, locals())
+
+
+def test_deadcode_try_noexcept():
+    def prog():
+        try:
+            x = 1
+        except KeyError:
+            pass
+
+    outp = "x = 1"
+
+    run_pass_harness(prog, DeadCodePass, outp, locals())

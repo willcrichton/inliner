@@ -2,24 +2,24 @@ import libcst as cst
 import os
 import inspect
 from collections import defaultdict
+from typing import Dict, Any, Optional, cast, DefaultDict
 
 from ..common import a2s, EvalException
 from ..visitors import RemoveEmptyBlocks
 from ..contexts import ctx_inliner
-from ..tracer import Tracer, TRACER_FILE_PREFIX
+from ..tracer import Tracer, TRACER_FILE_PREFIX, TracerArgs
 
 
 class BasePass(RemoveEmptyBlocks):
-    tracer_args = None
+    tracer_args: Optional[TracerArgs] = None
+    tracer: Optional[Tracer]
+    generated_vars: DefaultDict[str, int]
 
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__()
         self.inliner = ctx_inliner.get()
         self.generated_vars = defaultdict(int)
-        self.after_init()
-
-    def after_init(self):
-        pass
+        self.tracer = None
 
     def eval(self, code):
         if isinstance(code, cst.CSTNode):
@@ -83,14 +83,13 @@ class BasePass(RemoveEmptyBlocks):
         else:
             return f'{prefix}_{count}'
 
-    def visit_FunctionDef(self, fdef):
-        super().visit_FunctionDef(fdef)
+    def visit_FunctionDef(self, node) -> bool:
+        super().visit_FunctionDef(node)
         # Don't recurse into inline function definitions
         return False
 
-    def visit_Module(self, mod):
-        super().visit_Module(mod)
-        if self.tracer_args is not None:
-            self.tracer = Tracer(mod,
-                                 globls=self.inliner.base_globls,
-                                 **self.tracer_args).trace()
+    def visit_Module(self, node) -> None:
+        super().visit_Module(node)
+        if self.tracer_args:
+            self.tracer = Tracer(node, self.inliner.base_globls,
+                                 self.tracer_args).trace()

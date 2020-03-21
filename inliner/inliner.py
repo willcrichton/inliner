@@ -33,6 +33,8 @@ class Inliner:
             pass_ = Pass(**kwargs)
             with ctx_pass.set(pass_):
                 self.module = cst.MetadataWrapper(self.module).visit(pass_)
+                print(self.module.code)
+                print('=' * 30)
 
         return not orig_module.deep_equals(self.module)
 

@@ -1,22 +1,31 @@
 import libcst as cst
+from typing import List, Union
 
 from .base_pass import BasePass
+from ..tracer import TracerArgs, ExecCounts
 
 
 class DeadCodePass(BasePass):
-    tracer_args = {'trace_lines': True}
+    tracer_args = TracerArgs(trace_lines=True)
+    exec_counts: ExecCounts
+    block_execs: List[int]
 
-    def visit_Module(self, mod):
-        super().visit_Module(mod)
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.exec_counts = {}
+
+    def visit_Module(self, node) -> None:
+        super().visit_Module(node)
+        assert self.tracer is not None
         self.exec_counts = self.tracer.exec_counts()
         self.block_execs = [1]  # Module was executed once
 
-    def visit_IndentedBlock(self, node):
+    def visit_IndentedBlock(self, node) -> None:
         super().visit_IndentedBlock(node)
         # Record the number of times the current IndentedBlock was executed
         self.block_execs.append(self.exec_counts[node])
 
-    def leave_IndentedBlock(self, original_node, updated_node):
+    def leave_IndentedBlock(self, original_node, updated_node) -> cst.BaseSuite:
         final_node = super().leave_IndentedBlock(original_node, updated_node)
         # Pop the execution stack when we leave an IndentedBlock
         self.block_execs.pop()
@@ -38,6 +47,21 @@ class DeadCodePass(BasePass):
             return cst.RemoveFromParent()
 
         return super().leave_If(original_node, updated_node)
+
+    def leave_Try(self, original_node, updated_node
+                  ) -> Union[cst.BaseStatement, cst.RemovalSentinel]:
+        then_branch_count = self.exec_counts[original_node.body]
+
+        for original_handler, updated_handler in zip(original_node.handlers,
+                                                     updated_node.handlers):
+            if self.exec_counts[original_handler.body] > 0:
+                self.insert_statements_before_current(updated_handler.body.body)
+                super().leave_Try(original_node, updated_node)
+                return cst.RemoveFromParent()
+
+        self.insert_statements_before_current(updated_node.body.body)
+        super().leave_Try(original_node, updated_node)
+        return cst.RemoveFromParent()
 
     def on_leave(self, original_node, updated_node):
         final_node = super().on_leave(original_node, updated_node)
