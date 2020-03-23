@@ -2,6 +2,10 @@ import inspect
 import libcst as cst
 
 from .passes.inline import InlinePass
+from .passes.deadcode import DeadCodePass
+from .passes.copy_propagation import CopyPropagationPass
+from .passes.record_to_vars import RecordToVarsPass
+
 from .contexts import ctx_inliner, ctx_pass
 from .common import a2s, get_function_locals, parse_module
 from .targets import make_target
@@ -40,8 +44,17 @@ class Inliner:
         self.targets = [make_target(t) for t in targets]
         return self.run_pass(InlinePass, **kwargs)
 
-    def optimize(self, passes):
-        pass
+    def optimize(self, passes=None):
+        if passes is None:
+            passes = [DeadCodePass, CopyPropagationPass, RecordToVarsPass]
+
+        def run_passes():
+            any_change = False
+            for Pass in passes:
+                any_change |= self.run_pass(Pass)
+            return any_change
+
+        self.fixpoint(run_passes)
 
     def fixpoint(self, f, *args, **kwargs):
         while True:
