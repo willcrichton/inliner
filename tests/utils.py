@@ -1,5 +1,5 @@
 from inliner import Inliner
-from inliner.common import parse_module
+from inliner.common import parse_module, parse_statement
 import inspect
 
 
@@ -16,7 +16,11 @@ def run_pass_harness(prog, pass_, outp, locls, fixpoint=False):
     else:
         method()
 
-    outp_module = i.module.with_changes(body=parse_module(outp).body)
+    if inspect.isfunction(outp):
+        outp_module = i.module.with_changes(
+            body=parse_statement(inspect.getsource(outp)).body.body)
+    else:
+        outp_module = i.module.with_changes(body=parse_module(outp).body)
 
     # Print debug information if unexpected output
     if not outp_module.deep_equals(i.module):

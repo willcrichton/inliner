@@ -93,3 +93,4 @@ class BasePass(RemoveEmptyBlocks):
         if self.tracer_args:
             self.tracer = Tracer(node, self.inliner.base_globls,
                                  self.tracer_args).trace()
+            self.globls = self.tracer.globls
