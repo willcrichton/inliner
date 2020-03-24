@@ -1,11 +1,9 @@
-import libcst as cst
 import os
 import inspect
 from collections import defaultdict
-from typing import Dict, Any, Optional, cast, DefaultDict
+from typing import Optional, DefaultDict
 import re
 
-from ..common import a2s, EvalException
 from ..visitors import RemoveEmptyBlocks
 from ..contexts import ctx_inliner
 from ..tracer import Tracer, TRACER_FILE_PREFIX, TracerArgs

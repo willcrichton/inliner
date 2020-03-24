@@ -1,7 +1,5 @@
 import libcst as cst
 import libcst.matchers as m
-from collections import defaultdict
-import sys
 
 from .base_pass import BasePass
 from ..tracer import TracerArgs

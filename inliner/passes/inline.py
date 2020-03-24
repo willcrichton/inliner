@@ -21,9 +21,8 @@ class InlinePass(BasePass):
             new_stmts = transforms.inline_constructor(func_obj, call, ret_var)
         elif inspect.ismethod(func_obj):
             new_stmts = transforms.inline_method(func_obj, call, ret_var)
-
         else:
-            raise NotImplemented
+            raise NotImplementedError
 
         self.insert_statements_before_current(new_stmts)
 
@@ -60,7 +59,7 @@ class InlinePass(BasePass):
 
         try:
             func_obj = self.eval(func)
-        except EvalException as e:
+        except EvalException:
             return call
 
         if self._should_inline(func, func_obj):

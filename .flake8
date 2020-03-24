@@ -1,0 +1,19 @@
+[flake8]
+
+ignore =
+    C901,
+    W503, W504
+
+
+# We should've silenced all of Flake8's line-length related lints, in favor of
+# Black. However, let's just set this to a large value just to be safe, in case
+# we accidentally left in a line-length related lint rule. If we don't set
+# anything, it defaults to 79, which is also wrong.
+max-line-length = 999
+
+exclude =
+  __pycache__,
+  __init__.py,
+  old
+
+max-complexity = 12

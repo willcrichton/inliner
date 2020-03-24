@@ -2,9 +2,9 @@ import logging as log
 import inspect
 import libcst as cst
 import libcst.matchers as m
-from iterextras import unzip
 import typing
 import builtins
+import itertools
 
 from .contexts import ctx_pass, ctx_inliner
 from .common import a2s, SEP, make_assign, make_string, make_list, make_dict, \
@@ -18,8 +18,6 @@ def bind_arguments(f_ast, call_expr, new_stmts):
     pass_ = ctx_pass.get()
 
     args_def = f_ast.params
-
-    args = call_expr.args[:]
     arg_names = set([arg_def.name.value for arg_def in args_def.params])
 
     assgn_finder = FindAssignments()
@@ -484,7 +482,6 @@ def generate_import(name, obj, func_obj, file_imports):
     Generate an import statement for a (name, runtime object) pair.
     """
     inliner = ctx_inliner.get()
-    pass_ = ctx_pass.get()
 
     # HACK? is this still needed?
     if name == 'self':

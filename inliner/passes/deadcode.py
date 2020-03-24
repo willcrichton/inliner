@@ -1,5 +1,4 @@
 import libcst as cst
-import libcst.matchers as m
 from typing import List, Union
 
 from .base_pass import BasePass
@@ -52,8 +51,6 @@ class DeadCodePass(BasePass):
 
     def leave_Try(self, original_node, updated_node
                   ) -> Union[cst.BaseStatement, cst.RemovalSentinel]:
-        then_branch_count = self.exec_counts[original_node.body]
-
         for original_handler, updated_handler in zip(original_node.handlers,
                                                      updated_node.handlers):
             if self.exec_counts[original_handler.body] > 0:

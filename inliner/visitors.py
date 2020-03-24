@@ -1,10 +1,7 @@
 import libcst as cst
 import libcst.matchers as m
-from libcst._nodes.base import BaseValueToken
 from libcst.codemod import CodemodContext
 from libcst.metadata import ExpressionContext
-from collections import defaultdict
-from collections.abc import Iterable
 import inspect
 from typing import Union, Optional, Dict
 

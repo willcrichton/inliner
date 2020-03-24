@@ -1,8 +1,8 @@
 import inspect
 import libcst as cst
-from typing import NamedTuple, Optional, Any, Dict, List
+from typing import NamedTuple, Optional, List
 import textwrap
-from libcst.metadata import PositionProvider, ExpressionContextProvider, ExpressionContext
+from libcst.metadata import PositionProvider
 
 from .passes.base_pass import BasePass
 from .passes.inline import InlinePass
