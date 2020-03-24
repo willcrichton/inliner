@@ -1,7 +1,10 @@
 language: node_js
 node_js: 10
+before_install:
+- pyenv install --skip-existing 3.7 && pyenv global 3.7
+- python3 -m venv .env && source .env/bin/activate
+- pip3 install tox
 install:
-- sudo pip install tox
 - pushd inliner_jupyter && npm install && npm run prepublishOnly && popd
 script: travis_wait tox && cd inliner_jupyter
 after_deploy: cd ..
