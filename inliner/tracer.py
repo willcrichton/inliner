@@ -1,10 +1,11 @@
-from tempfile import NamedTemporaryFile
-from collections import defaultdict
-import sys
 import dis
+import sys
+from collections import defaultdict
+from tempfile import NamedTemporaryFile
+from typing import Any, Dict, NamedTuple, Optional
+
 import libcst as cst
 from libcst.metadata import PositionProvider
-from typing import NamedTuple, Dict, Optional, Any
 
 from .common import parse_statement
 

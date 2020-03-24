@@ -1,17 +1,19 @@
-import logging as log
+import builtins
 import inspect
+import itertools
+import logging as log
+import typing
+
 import libcst as cst
 import libcst.matchers as m
-import typing
-import builtins
-import itertools
 
-from .contexts import ctx_pass, ctx_inliner
-from .common import a2s, SEP, make_assign, make_string, make_list, make_dict, \
-    make_index, parse_statement, parse_expr, get_function_locals
-from .visitors import FindAssignments, FindClosedVariables, Rename, \
-    ReplaceReturn, ReplaceYield, ReplaceSuper, UsedNames, collect_imports, \
-    RemoveFunctoolsWraps
+from .common import (SEP, a2s, get_function_locals, make_assign, make_dict,
+                     make_index, make_list, make_string, parse_expr,
+                     parse_statement)
+from .contexts import ctx_inliner, ctx_pass
+from .visitors import (FindAssignments, FindClosedVariables,
+                       RemoveFunctoolsWraps, Rename, ReplaceReturn,
+                       ReplaceSuper, ReplaceYield, UsedNames, collect_imports)
 
 
 def bind_arguments(f_ast, call_expr, new_stmts):

@@ -1,9 +1,14 @@
-import libcst as cst
-import textwrap
 import re
-from libcst.metadata import ExpressionContextProvider as _ExpressionContextProvider, ExpressionContext, ScopeProvider as _ScopeProvider
+import textwrap
+
+import libcst as cst
+from libcst.metadata import ExpressionContext
+from libcst.metadata import \
+    ExpressionContextProvider as _ExpressionContextProvider
+from libcst.metadata import ScopeProvider as _ScopeProvider
+from libcst.metadata.expression_context_provider import \
+    ExpressionContextVisitor
 from libcst.metadata.scope_provider import ScopeVisitor
-from libcst.metadata.expression_context_provider import ExpressionContextVisitor
 
 from .contexts import ctx_inliner
 

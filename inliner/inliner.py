@@ -1,10 +1,12 @@
 import inspect
+
 import libcst as cst
 
-from .passes import PASSES, BasePass, InlinePass, DeadCodePass, CopyPropagationPass, RecordToVarsPass, CleanImportsPass, UnusedVarsPass
-
+from .common import EvalException, a2s, get_function_locals, parse_module
 from .contexts import ctx_inliner, ctx_pass
-from .common import a2s, get_function_locals, parse_module, EvalException
+from .passes import (PASSES, BasePass, CleanImportsPass, CopyPropagationPass,
+                     DeadCodePass, InlinePass, RecordToVarsPass,
+                     UnusedVarsPass)
 from .targets import make_target
 
 

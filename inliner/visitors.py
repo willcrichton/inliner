@@ -1,12 +1,14 @@
+import inspect
+from typing import Dict, Optional, Union
+
 import libcst as cst
 import libcst.matchers as m
 from libcst.codemod import CodemodContext
 from libcst.metadata import ExpressionContext
-import inspect
-from typing import Union, Optional, Dict
 
+from .common import (ExpressionContextProvider, ScopeProvider, a2s,
+                     make_assign, parse_expr, parse_module, parse_statement)
 from .insert_statements import InsertStatementsVisitor
-from .common import make_assign, parse_module, parse_statement, parse_expr, a2s, ExpressionContextProvider, ScopeProvider
 
 
 class RemoveEmptyBlocks(InsertStatementsVisitor):

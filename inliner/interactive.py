@@ -1,16 +1,17 @@
 import inspect
-import libcst as cst
-from typing import NamedTuple, Optional, List
 import textwrap
+from typing import List, NamedTuple, Optional
+
+import libcst as cst
 from libcst.metadata import PositionProvider
 
+from .common import EvalException, ScopeProvider, a2s
+from .contexts import ctx_inliner
+from .inliner import Inliner
 from .passes.base_pass import BasePass
 from .passes.inline import InlinePass
-from .tracer import Tracer, TracerArgs
-from .inliner import Inliner
-from .common import EvalException, a2s, ScopeProvider
-from .contexts import ctx_inliner
 from .targets import InlineTarget
+from .tracer import Tracer, TracerArgs
 
 
 def object_path(obj):

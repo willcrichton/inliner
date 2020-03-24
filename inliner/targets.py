@@ -1,6 +1,6 @@
-import inspect
 import ast
 import importlib
+import inspect
 
 from .contexts import ctx_inliner
 
