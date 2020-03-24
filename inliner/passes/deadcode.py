@@ -1,8 +1,10 @@
 import libcst as cst
+import libcst.matchers as m
 from typing import List, Union
 
 from .base_pass import BasePass
 from ..tracer import TracerArgs, ExecCounts
+from ..visitors import is_pure
 
 
 class DeadCodePass(BasePass):
@@ -60,8 +62,15 @@ class DeadCodePass(BasePass):
                 return cst.RemoveFromParent()
 
         self.insert_statements_before_current(updated_node.body.body)
+
         super().leave_Try(original_node, updated_node)
         return cst.RemoveFromParent()
+
+    def leave_Expr(self, original_node, updated_node):
+        final_node = super().leave_Expr(original_node, updated_node)
+        if is_pure(final_node.value):
+            return cst.RemoveFromParent()
+        return final_node
 
     def on_leave(self, original_node, updated_node):
         final_node = super().on_leave(original_node, updated_node)

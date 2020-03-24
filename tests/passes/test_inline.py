@@ -1,14 +1,6 @@
-from inliner.targets import make_target
 import functools
 
-from utils import run_pass_harness
-
-
-def run_inline_harness(prog, target, outp, locls, **kwargs):
-    targets = [make_target(t) for t in target] if isinstance(
-        target, list) else [make_target(target)]
-    method = lambda i: lambda: i.inline(targets)
-    return run_pass_harness(prog, method, outp, locls, **kwargs)
+from utils import run_inline_harness
 
 
 def test_inline_basic():

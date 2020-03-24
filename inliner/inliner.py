@@ -1,18 +1,15 @@
 import inspect
 import libcst as cst
 
-from .passes.inline import InlinePass
-from .passes.deadcode import DeadCodePass
-from .passes.copy_propagation import CopyPropagationPass
-from .passes.record_to_vars import RecordToVarsPass
+from .passes import PASSES, BasePass, InlinePass, DeadCodePass, CopyPropagationPass, RecordToVarsPass, CleanImportsPass, UnusedVarsPass
 
 from .contexts import ctx_inliner, ctx_pass
-from .common import a2s, get_function_locals, parse_module
+from .common import a2s, get_function_locals, parse_module, EvalException
 from .targets import make_target
 
 
 class Inliner:
-    def __init__(self, program, globls=None, add_comments=True):
+    def __init__(self, program, globls=None, targets=None, add_comments=True):
         if type(program) is not str:
             assert inspect.isfunction(program)
             if globls is None and hasattr(program, '__globals__'):
@@ -30,23 +27,44 @@ class Inliner:
 
         self.add_comments = add_comments
         self.length_inlined = 0
+        self.targets = targets if targets is not None else []
 
     def run_pass(self, Pass, **kwargs):
         orig_module = self.module
         with ctx_inliner.set(self):
+            if isinstance(Pass, str):
+                Pass = next(p for p in PASSES if p.name() == Pass)
+            assert issubclass(Pass, BasePass)
             pass_ = Pass(**kwargs)
+
             with ctx_pass.set(pass_):
                 self.module = cst.MetadataWrapper(self.module).visit(pass_)
 
         return not orig_module.deep_equals(self.module)
 
-    def inline(self, targets, **kwargs):
-        self.targets = [make_target(t) for t in targets]
-        return self.run_pass(InlinePass, **kwargs)
+    def add_target(self, target):
+        self.targets.append(make_target(target))
+
+    def inline(self, targets=[], **kwargs):
+        for t in targets:
+            self.add_target(t)
+
+        changed = self.run_pass(InlinePass, **kwargs)
+
+        if len(targets) > 0:
+            self.targets = self.targets[:-len(targets)]
+
+        return changed
 
     def optimize(self, passes=None):
         if passes is None:
-            passes = [DeadCodePass, CopyPropagationPass, RecordToVarsPass]
+            passes = [
+                DeadCodePass,
+                CopyPropagationPass,
+                UnusedVarsPass,
+                RecordToVarsPass,
+                CleanImportsPass,
+            ]
 
         def run_passes():
             any_change = False
@@ -54,9 +72,31 @@ class Inliner:
                 any_change |= self.run_pass(Pass)
             return any_change
 
-        self.fixpoint(run_passes)
+        return self.fixpoint(run_passes)
 
     def fixpoint(self, f, *args, **kwargs):
+        any_change = False
         while True:
-            if not f(*args, **kwargs):
-                return
+            changed = f(*args, **kwargs)
+            any_change |= any_change
+            if not changed:
+                return any_change
+
+    def code(self):
+        return self.module.code
+
+    def eval(self, code, globls=None):
+        if isinstance(code, cst.CSTNode):
+            code = a2s(code)
+        assert isinstance(code, str)
+
+        globls = globls.copy() if globls is not None else self.base_globls
+
+        try:
+            return eval(code, globls, globls)
+        except Exception as e:
+            raise EvalException(e)
+
+    def execute(self):
+        globls = self.base_globls.copy()
+        exec(self.module.code, globls, globls)

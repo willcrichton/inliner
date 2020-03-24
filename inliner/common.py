@@ -1,7 +1,8 @@
 import libcst as cst
 import textwrap
 import re
-from libcst.metadata import ExpressionContextProvider as ECP, ExpressionContext
+from libcst.metadata import ExpressionContextProvider as _ExpressionContextProvider, ExpressionContext, ScopeProvider as _ScopeProvider
+from libcst.metadata.scope_provider import ScopeVisitor
 from libcst.metadata.expression_context_provider import ExpressionContextVisitor
 
 from .contexts import ctx_inliner
@@ -9,9 +10,16 @@ from .contexts import ctx_inliner
 SEP = "___"
 
 
-class ExpressionContextProvider(ECP):
+class ExpressionContextProvider(_ExpressionContextProvider):
     def visit_IndentedBlock(self, node: cst.IndentedBlock) -> None:
         node.visit(ExpressionContextVisitor(self, ExpressionContext.LOAD))
+
+
+class ScopeProvider(_ScopeProvider):
+    def visit_FunctionDef(self, node):
+        visitor = ScopeVisitor(self)
+        node.visit(visitor)
+        visitor.infer_accesses()
 
 
 class EvalException(Exception):

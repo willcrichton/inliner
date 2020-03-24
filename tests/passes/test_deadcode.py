@@ -108,3 +108,32 @@ def test_deadcode_try_noexcept():
     outp = "x = 1"
 
     run_pass_harness(prog, DeadCodePass, outp, locals())
+
+
+def test_deadcode_pure_expr():
+    import json
+
+    def f():
+        return 1
+
+    def prog():
+        # impure
+        x = 1
+        f()
+        x + f()
+        # pure
+        x
+        x + 1
+        {'a': 1}
+        [0][0]
+        json.loads
+        ((1))
+
+    def outp():
+        # impure
+        x = 1
+        f()
+        x + f()
+        # pure
+
+    run_pass_harness(prog, DeadCodePass, outp, locals())

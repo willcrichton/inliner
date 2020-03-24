@@ -12,6 +12,9 @@ class InlineTarget:
     def __init__(self, target):
         self.target = target
 
+    def to_string(self):
+        raise NotImplementedError
+
     def should_inline(self, code, obj):
         raise NotImplementedError
 
@@ -22,6 +25,9 @@ class ModuleTarget(InlineTarget):
 
     e.g. if target = a.b, then objs defined in a.b or a.b.c will be inlined
     """
+    def to_string(self):
+        return self.target.__name__
+
     def should_inline(self, code, obj):
         # Check if object is defined in the same module or a submodule
         # of the target.
@@ -35,6 +41,9 @@ class FunctionTarget(InlineTarget):
     """
     Inline exactly this function
     """
+    def to_string(self):
+        return f'{self.target.__module__}.{self.target.__qualname__}'
+
     def should_inline(self, code, obj):
         if inspect.ismethod(obj):
             return obj.__func__ == self.target
@@ -50,6 +59,9 @@ class ClassTarget(InlineTarget):
     """
     Inline this class and all of its methods
     """
+    def to_string(self):
+        return f'{self.target.__module__}.{self.target.__qualname__}'
+
     def should_inline(self, code, obj):
         inliner = ctx_inliner.get()
 

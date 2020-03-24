@@ -1,5 +1,8 @@
 from inliner import Inliner
 from inliner.common import parse_module, parse_statement
+from inliner.targets import make_target
+
+import difflib
 import inspect
 
 
@@ -23,13 +26,43 @@ def run_pass_harness(prog, pass_, outp, locls, fixpoint=False):
         outp_module = i.module.with_changes(body=parse_module(outp).body)
 
     # Print debug information if unexpected output
-    if not outp_module.deep_equals(i.module):
+    generated_code = i.module.code
+    target_code = outp_module.code
+    if generated_code != target_code:
         print('GENERATED')
-        print(i.module.code)
+        print(generated_code)
         print('=' * 30)
         print('TARGET')
-        print(outp_module.code)
+        print(target_code)
+        print('=' * 30)
+        print('DIFF')
+        diffs = difflib.unified_diff(generated_code,
+                                     target_code,
+                                     fromfile='GENERATED',
+                                     tofile='TARGET')
+        for diff in diffs:
+            print(diff)
         assert False
 
     # Make sure we don't violate any assertions in generated code
     exec(i.module.code, locls, locls)
+
+
+def run_inline_harness(prog, target, outp, locls, **kwargs):
+    targets = [make_target(t) for t in target] if isinstance(
+        target, list) else [make_target(target)]
+    method = lambda i: lambda: i.inline(targets)
+    return run_pass_harness(prog, method, outp, locls, **kwargs)
+
+
+def run_optimize_harness(prog, target, outp, locls):
+    targets = [make_target(t) for t in target] if isinstance(
+        target, list) else [make_target(target)]
+
+    def method(i):
+        def inner():
+            return i.inline(targets) | i.optimize()
+
+        return inner
+
+    return run_pass_harness(prog, method, outp, locls, fixpoint=True)

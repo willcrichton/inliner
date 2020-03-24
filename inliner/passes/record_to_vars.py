@@ -3,7 +3,7 @@ import libcst.matchers as m
 import inspect
 
 from ..tracer import TracerArgs
-from ..common import SEP, parse_expr, a2s
+from ..common import SEP, parse_expr, a2s, EvalException
 from .base_pass import BasePass
 
 obj_new_pattern = m.Assign(
@@ -11,33 +11,26 @@ obj_new_pattern = m.Assign(
     value=m.Call(func=m.Attribute(value=m.Name(), attr=m.Name("__new__"))))
 
 
-class UnsafeToConvert(cst.CSTVisitor):
-    def __init__(self):
-        self.unsafe = set()
-
-    def visit_Attribute(self, node):
-        if m.matches(node.value, m.Name()):
-            return False
-
-    def visit_Assign(self, node):
-        if m.matches(node, obj_new_pattern):
-            return False
-
-    def visit_Name(self, node):
-        self.unsafe.add(node.value)
-
-
-class FindObjNew(cst.CSTVisitor):
+class FindSafeObjsToConvert(cst.CSTVisitor):
     def __init__(self, pass_):
         self.pass_ = pass_
-        self.objs = set()
+        self.whitelist = set()
+        self.blacklist = set()
 
     def visit_Assign(self, node):
         if m.matches(node, obj_new_pattern):
             name = node.targets[0].target.value
             if name in self.pass_.globls:
                 obj = self.pass_.globls[name]
-                self.objs.add(id(obj))
+                self.whitelist.add(id(obj))
+
+    def visit_Attribute(self, node):
+        try:
+            obj = self.pass_.eval(node)
+            if inspect.ismethod(obj):
+                self.blacklist.add(id(obj.__self__))
+        except EvalException:
+            pass
 
     def visit_FunctionDef(self, node):
         return False
@@ -73,11 +66,9 @@ class RecordToVarsPass(BasePass):
     def visit_Module(self, node):
         super().visit_Module(node)
 
-        finder = FindObjNew(self)
+        finder = FindSafeObjsToConvert(self)
         node.visit(finder)
-
-        unsafe = UnsafeToConvert()
-        node.visit(unsafe)
+        safe_objs = finder.whitelist - finder.blacklist
 
         # We find all the objects that need to be inlined by going through
         # the globals of the last trace
@@ -89,7 +80,7 @@ class RecordToVarsPass(BasePass):
             # an object is neither a class or a module, it must be an object
             # so we register it to be inlined.
             if (not inspect.isclass(obj) and not inspect.ismodule(obj)
-                    and not var in unsafe.unsafe and id(obj) in finder.objs
+                    and id(obj) in safe_objs
                     and id(obj) not in self.objs_to_inline):
 
                 self.objs_to_inline[id(obj)] = self.fresh_var(var)

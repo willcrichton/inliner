@@ -191,25 +191,19 @@ let Passes = mobx_react.observer(() => {
   let intro = React.useContext(intro_context)
 
   const passes = [
-    'inline', 'deadcode', 'copy_propagation', 'value_propagation', 'clean_imports', 'expand_self', 'lifetimes', 'simplify_varargs', 'remove_suffixes', 'expand_tuples', 'partial_eval', 'array_index'
+    'inline', 'dead_code', 'copy_propagation', 'clean_imports', 'record_to_vars', 'unused_vars'
   ];
 
   return <div className='inline-passes'>
     <div>
       <button className="btn btn-default"
-              data-intro="Click 'Simplify' to inline and clean code from the inline targets"
+              data-intro="Click 'Optimize' to inline and clean code from the inline targets"
               data-step="4"
               onClick={async () => {
-                await handle_error('simplify', state, () => state.simplify());
+                await handle_error('optimize', state, () => state.optimize());
                 intro_step(intro, 4);
               }}>
-        Simplify
-      </button>
-    </div>
-    <div>
-      <button className="btn btn-default"
-              onClick={() => handle_error('simplify_noinline', state, () => state.simplify_noinline())}>
-        Simplify (no inline)
+        Optimize
       </button>
     </div>
     {dev_mode()

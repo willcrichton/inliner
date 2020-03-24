@@ -30,8 +30,7 @@ def bind_arguments(f_ast, call_expr, new_stmts):
 
     def rename(src, dst):
         nonlocal f_ast
-        new_body = cst.MetadataWrapper(f_ast.body).visit(Rename(src, dst))
-        f_ast = f_ast.with_changes(body=new_body)
+        f_ast = cst.MetadataWrapper(f_ast).visit(Rename(src, dst))
 
     # Scope a variable name as unique to the function, and update any references
     # to it in the function
@@ -45,7 +44,8 @@ def bind_arguments(f_ast, call_expr, new_stmts):
         # special case: if doing a name copy, e.g. f(x=y), then directly
         # substitute [x -> y] in the inlined function body. Only do this
         # if substitution is legal (x is not assigned or closed).
-        if isinstance(v, cst.Name) and \
+        # TODO: generalize the != None case
+        if isinstance(v, cst.Name) and v.value != 'None' and \
            k not in assgn_finder.names and \
            k not in closed_var_finder.vars:
             rename(k, v.value)
@@ -159,7 +159,8 @@ def bind_arguments(f_ast, call_expr, new_stmts):
 
     # If function definition uses *args, then assign it to the remaining anonymous
     # arguments from the call_expr
-    if args_def.star_arg is not cst.MaybeSentinel.DEFAULT:
+    if (args_def.star_arg is not cst.MaybeSentinel.DEFAULT
+            and not isinstance(args_def.star_arg, cst.ParamStar)):
         k = unique_and_rename(args_def.star_arg.name.value)
         v = call_anon_args[:]
         if star_arg is not None:
@@ -342,12 +343,15 @@ def inline_function(func_obj,
 
     if inliner.add_comments:
         # Add header comment to first statement
-        header_comment = cst.Comment(f'# {a2s(call)}')
+        call_str = a2s(call)
+        header_comment = [
+            cst.EmptyLine(comment=cst.Comment(f'# {line}'))
+            for line in call_str.splitlines()
+        ]
         first_stmt = new_stmts[0]
-        new_stmts[0] = first_stmt.with_changes(leading_lines=[
-            cst.EmptyLine(),
-            cst.EmptyLine(comment=header_comment)
-        ] + list(first_stmt.leading_lines))
+        new_stmts[0] = first_stmt.with_changes(leading_lines=[cst.EmptyLine()] +
+                                               header_comment +
+                                               list(first_stmt.leading_lines))
 
     return new_stmts
 

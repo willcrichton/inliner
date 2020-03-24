@@ -1,13 +1,10 @@
 language: node_js
 node_js: 10
 before_install:
-- pyenv install --skip-existing 3.7 && pyenv global 3.7
-- pip3 install --upgrade setuptools
-- git clone https://github.com/berkerpeksag/astor/
-- pushd astor && pip3 install . && popd
+- pip3 install tox
 install:
 - pushd inliner_jupyter && npm install && npm run prepublishOnly && popd
-script: travis_wait python3.7 setup.py test && cd inliner_jupyter
+script: travis_wait tox && cd inliner_jupyter
 after_deploy: cd ..
 deploy:
 - skip_cleanup: true

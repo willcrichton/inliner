@@ -1,5 +1,6 @@
 import libcst as cst
 import libcst.matchers as m
+from libcst._nodes.base import BaseValueToken
 from libcst.codemod import CodemodContext
 from libcst.metadata import ExpressionContext
 from collections import defaultdict
@@ -8,7 +9,7 @@ import inspect
 from typing import Union, Optional, Dict
 
 from .insert_statements import InsertStatementsVisitor
-from .common import make_assign, parse_module, parse_statement, parse_expr, a2s, ExpressionContextProvider
+from .common import make_assign, parse_module, parse_statement, parse_expr, a2s, ExpressionContextProvider, ScopeProvider
 
 
 class RemoveEmptyBlocks(InsertStatementsVisitor):
@@ -160,34 +161,37 @@ class UsedNames(cst.CSTVisitor):
 
 
 class Rename(cst.CSTTransformer):
-    METADATA_DEPENDENCIES = (ExpressionContextProvider, )
+    METADATA_DEPENDENCIES = (ScopeProvider, )
 
     def __init__(self, src, dst):
         self.src = src
         self.dst = dst
+        self.toplevel = True
 
     def visit_FunctionDef(self, node) -> Optional[bool]:
-        fdef = node
-        if fdef.name.value != self.src:
-            params = fdef.params
-            arg_names = set()
-            for arg in params.params:
-                arg_names.add(arg.name.value)
-            if params.star_arg is not None:
-                arg_names.add(params.star_arg.name.value)
-            if params.star_kwarg is not None:
-                arg_names.add(params.star_kwarg.name.value)
+        if self.toplevel:
+            self.toplevel = False
+        else:
+            fdef = node
+            if fdef.name.value != self.src:
+                params = fdef.params
+                arg_names = set()
+                for arg in params.params:
+                    arg_names.add(arg.name.value)
+                if params.star_arg is not None:
+                    arg_names.add(params.star_arg.name)
+                if params.star_kwarg is not None:
+                    arg_names.add(params.star_kwarg.name)
 
-            return self.src not in arg_names
+                return self.src not in arg_names
 
     def leave_Name(self, original_node, updated_node) -> cst.BaseExpression:
         try:
-            expr_ctx = self.get_metadata(ExpressionContextProvider,
-                                         original_node)
+            self.get_metadata(ScopeProvider, original_node)
         except KeyError:
             return updated_node
 
-        if expr_ctx == ExpressionContext.LOAD and updated_node.value == self.src:
+        if updated_node.value == self.src:
             return updated_node.with_changes(value=self.dst)
 
         return updated_node
@@ -225,15 +229,33 @@ class CollectImports(cst.CSTVisitor):
     def __init__(self, mod):
         self.imprts = {}
         self.mod = mod
+        self.toplevel = 0
+
+    def visit_IndentedBlock(self, node):
+        self.toplevel += 1
+
+    def leave_IndentedBlock(self, node):
+        self.toplevel -= 1
+
+    def visit_Assign(self, node) -> None:
+        if (m.matches(node, m.Assign(targets=[m.AssignTarget(m.Name())]))
+                and self.toplevel == 0):
+            name = node.targets[0].target
+            self.imprts[name.value] = cst.ImportFrom(
+                module=parse_expr(self.mod),
+                names=[cst.ImportAlias(name=name, asname=None)])
 
     def visit_Import(self, node) -> None:
         for alias in node.names:
             name = alias.asname.name.value if alias.asname is not None else alias.name.value
+
+            # Regenerate alias to avoid trailing comma issue
+            alias = cst.ImportAlias(name=alias.name, asname=alias.asname)
             self.imprts[name] = cst.Import(names=[alias])
 
     def visit_ImportFrom(self, node) -> None:
         for alias in node.names:
-            name = alias.asname.value if alias.asname is not None else alias.name.value
+            name = alias.asname.name.value if alias.asname is not None else alias.name.value
 
             level = len(node.relative)
             if level > 0:
@@ -247,6 +269,8 @@ class CollectImports(cst.CSTVisitor):
             else:
                 module = node.module
 
+            # Regenerate alias to avoid trailing comma issue
+            alias = cst.ImportAlias(name=alias.name, asname=alias.asname)
             self.imprts[name] = cst.ImportFrom(module=module, names=[alias])
 
 
@@ -272,3 +296,52 @@ class RemoveFunctoolsWraps(cst.CSTTransformer):
             if m.matches(dec, ftool_pattern):
                 return fdef.with_changes(decorators=[])
         return fdef
+
+
+class IsPureVisitor(cst.CSTVisitor):
+
+    whitelist = (
+        # Constants
+        cst.BaseNumber,
+        cst.SimpleString,
+        cst.Name,
+        cst.List,
+        cst.Set,
+        cst.Tuple,
+        cst.Dict,
+        cst.Attribute,
+        # Operations
+        cst.BinaryOperation,
+        cst.BaseBinaryOp,
+        cst.BaseBooleanOp,
+        cst.UnaryOperation,
+        cst.BooleanOperation,
+        cst.Comparison,
+        cst.Subscript,
+        cst.BaseSlice,
+        cst.Element,
+        cst.DictElement,
+        cst.SubscriptElement,
+        # Whitespace/syntax
+        cst.BaseParenthesizableWhitespace,
+        cst.LeftCurlyBrace,
+        cst.RightCurlyBrace,
+        cst.LeftSquareBracket,
+        cst.RightSquareBracket,
+        cst.LeftParen,
+        cst.RightParen,
+        cst.Dot)
+
+    def __init__(self):
+        self.pure = True
+
+    def on_visit(self, node):
+        if not isinstance(node, self.whitelist):
+            self.pure = False
+        return super().on_visit(node)
+
+
+def is_pure(node):
+    visitor = IsPureVisitor()
+    node.visit(visitor)
+    return visitor.pure

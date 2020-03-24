@@ -20,29 +20,27 @@ class PythonBridge {
 
   async setup(contents) {
     let src = `
-from inliner import Inliner
+from inliner import InteractiveInliner
 import json
-${this.name} = Inliner(${JSON.stringify(contents)}, [], globls=globals())`;
+${this.name} = InteractiveInliner(${JSON.stringify(contents)}, globls=globals())`;
     return check_call(src);
   }
 
   async make_program() {
-    var print = `print(${this.name}.make_program(comments=True))`;
+    var print = `print(${this.name}.code())`;
     let output = await check_output(print);
     return output.trimEnd();
   }
 
   async target_suggestions() {
     let refresh = `
-import json
-print(json.dumps(${this.name}.inlinables()))`;
+print(json.dumps(${this.name}.target_suggestions()))`;
     let outp = await check_output(refresh);
     return JSON.parse(outp);
   }
 
   async code_folding() {
     const outp = await check_output(`
-import json
 print(json.dumps(${this.name}.code_folding()))`);
     return JSON.parse(outp);
   }
@@ -52,8 +50,9 @@ print(json.dumps(${this.name}.code_folding()))`);
   }
 
   async run_pass(pass, fixpoint = false) {
-    let call = fixpoint ? `fixpoint(inliner.${pass})` : `${pass}()`;
-    let outp = await check_output(`print(${this.name}.${call})`);
+    const inner_call = `${this.name}.run_pass("${pass}")`;
+    let call = fixpoint ? `${this.name}.fixpoint(lambda: ${inner_call})` : inner_call;
+    let outp = await check_output(`print(${call})`);
     outp = outp.trim();
 
     // If running pass generates some output, we only want to look at
@@ -71,7 +70,6 @@ print(json.dumps(${this.name}.code_folding()))`);
   async sync_targets(targets) {
     let names = targets.map((t) => t.name);
     var save = `
-import json
 ${this.name}.targets = []
 for target in json.loads('${JSON.stringify(names)}'):
     ${this.name}.add_target(target)`;
@@ -187,17 +185,13 @@ export class InlineState {
     return this.bridge.get_object_path(src);
   }
 
-  simplify_noinline() {
-    return this.simplify(false)
-  }
-
   async fold_code() {
     let fold_lines = await this.bridge.code_folding();
     this.methods.fold_lines(fold_lines);
   }
 
   @spinner
-  async simplify(inline = true) {
+  async optimize() {
     let run_until = async (passes) => {
       while (true) {
         var any_pass = false;
@@ -215,20 +209,17 @@ export class InlineState {
     };
 
     let passes = [
-      'deadcode',
-      'copy_propagation', //'value_propagation',
-      'lifetimes', 'simplify_varargs', 'partial_eval', 'expand_tuples', 'clean_imports', 'array_index'
+      'inline',
+      'dead_code',
+      'copy_propagation',
+      'clean_imports'
     ];
 
-    if (inline) {
-      passes.unshift('inline');
-    }
-
     await run_until(passes);
-    await this.run_pass('expand_self');
+    await this.run_pass('record_to_vars');
     await run_until(passes);
 
-    await this.run_pass('remove_suffixes');
+    //await this.run_pass('remove_suffixes');
     await this.fold_code();
 
     await this.refresh_target_suggestions();

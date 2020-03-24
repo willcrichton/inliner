@@ -3,6 +3,7 @@ import os
 import inspect
 from collections import defaultdict
 from typing import Dict, Any, Optional, cast, DefaultDict
+import re
 
 from ..common import a2s, EvalException
 from ..visitors import RemoveEmptyBlocks
@@ -22,14 +23,8 @@ class BasePass(RemoveEmptyBlocks):
         self.tracer = None
 
     def eval(self, code):
-        if isinstance(code, cst.CSTNode):
-            code = a2s(code)
-        assert isinstance(code, str)
-
-        try:
-            return eval(code, self.tracer.globls, self.tracer.globls)
-        except Exception as e:
-            raise EvalException(e)
+        return self.inliner.eval(
+            code, self.tracer.globls if self.tracer_args is not None else None)
 
     def is_source_obj(self, obj):
         """
@@ -94,3 +89,17 @@ class BasePass(RemoveEmptyBlocks):
             self.tracer = Tracer(node, self.inliner.base_globls,
                                  self.tracer_args).trace()
             self.globls = self.tracer.globls
+
+    @classmethod
+    def name(cls) -> str:
+        # Get class name
+        name = cls.__name__
+
+        # Split "TheFooPass" into ["The", "Foo", "Pass"]
+        parts = re.findall('.[^A-Z]*', name)
+
+        # Drop "Pass"
+        parts = parts[:-1]
+
+        # Make "the_foo"
+        return '_'.join([s.lower() for s in parts])

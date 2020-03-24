@@ -16,6 +16,10 @@ class PropagationPass(BasePass):
         for access in scope.accesses[name]:
             self._to_propagate[access.node] = value
 
+    def visit_FunctionDef(self, node):
+        super().visit_FunctionDef(node)
+        return True
+
     def leave_Name(self, original_node, updated_node):
         return self._to_propagate.get(original_node, updated_node)
 

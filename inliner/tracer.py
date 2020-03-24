@@ -78,6 +78,44 @@ class ExecCountsVisitor(cst.CSTVisitor):
         return super().on_visit(node)
 
 
+class UnusedVarsVisitor(cst.CSTVisitor):
+    METADATA_DEPENDENCIES = (PositionProvider, )
+
+    def __init__(self, tracer):
+        super().__init__()
+        self.tracer = tracer
+        self.unused_lines = set()
+        self.unused_vars = {}
+        self.get_unused_lines()
+
+    def get_unused_lines(self):
+        for k, stores in self.tracer.stores.items():
+            reads = self.tracer.reads[k]
+
+            for i, store_line in enumerate(stores):
+                next_possible_stores = [
+                    line for line in stores[i + 1:] if line > store_line
+                ]
+                next_store_line = min(next_possible_stores, default=sys.maxsize)
+
+                unused = True
+                for read_line in reads:
+                    if store_line < read_line and read_line <= next_store_line:
+                        unused = False
+
+                if unused:
+                    self.unused_lines.add(store_line)
+
+    def get_is_unused(self, node):
+        pos = self.get_metadata(PositionProvider, node)
+        lines = list(range(pos.start.line, pos.end.line + 1))
+        return any([line in self.unused_lines for line in lines])
+
+    def on_visit(self, node) -> bool:
+        self.unused_vars[node] = self.get_is_unused(node)
+        return super().on_visit(node)
+
+
 class TracerArgs(NamedTuple):
     trace_lines: bool = False
     trace_reads: bool = False
@@ -96,7 +134,8 @@ class Tracer:
     def __init__(self,
                  module,
                  globls: Optional[Globals] = None,
-                 args: Optional[TracerArgs] = None):
+                 args: Optional[TracerArgs] = None,
+                 cache: bool = True):
         if args is None:
             args = TracerArgs()
         self.module = module
@@ -151,6 +190,22 @@ class Tracer:
         return {
             self.node_map[k]: v
             for k, v in exec_counts.items() if k in self.node_map
+        }
+
+    def unused_vars(self):
+        assert self.trace_reads, "Tracer was not executed with trace_reads=True"
+        visitor = UnusedVarsVisitor(self)
+
+        # unsafe_skip_copy to ensure that nodes in map are pointer-equivalent
+        # to input mod
+        wrapper = cst.MetadataWrapper(self.transformed_module,
+                                      unsafe_skip_copy=True)
+        wrapper.visit(visitor)
+
+        unused_vars = visitor.unused_vars
+        return {
+            self.node_map[k]: v
+            for k, v in unused_vars.items() if k in self.node_map
         }
 
     def trace(self):

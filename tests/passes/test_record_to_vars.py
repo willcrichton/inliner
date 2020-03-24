@@ -19,6 +19,22 @@ def test_record_to_vars_noop():
     run_pass_harness(prog, RecordToVarsPass, outp, locals())
 
 
+def test_record_to_vars_noop_2():
+    class Cls:
+        def foo(self):
+            pass
+
+    def prog():
+        c = Cls.__new__(Cls)
+        c.foo()
+
+    def outp():
+        c = Cls.__new__(Cls)
+        c.foo()
+
+    run_pass_harness(prog, RecordToVarsPass, outp, locals())
+
+
 def test_record_to_vars_basic():
     class Cls:
         pass
