@@ -76,8 +76,6 @@ orient___establish_variables = None
 # See if we need to get variables from `data`
 
 # Validate the inputs
-for var in [x___boxplot, y___boxplot, None, None]:
-    pass
 
         # Figure out the plotting orientation
 """Determine how the plot should be oriented based on the data."""

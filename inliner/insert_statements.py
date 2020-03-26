@@ -68,16 +68,12 @@ class RemoveEmptyBlocks(cst.CSTTransformer):
 
         return final_node
 
-    # def on_leave(self, original_node, updated_node):
-    #     final_node = super().on_leave(original_node, updated_node)
-    #     if isinstance(final_node,
-    #                   (cst.SimpleStatementLine, cst.SimpleStatementSuite)):
-
-    #     elif isinstance(final_node, cst.BaseCompoundStatement):
-    #         if len(final_node.body.body) == 0:
-    #             return cst.RemoveFromParent()
-
-    #     return final_node
+    def leave_For(self, original_node, updated_node):
+        final_node = super().leave_For(original_node, updated_node)
+        if not isinstance(final_node, cst.RemovalSentinel):
+            if len(final_node.body.body) == 0:
+                return cst.RemoveFromParent()
+        return final_node
 
 
 class InsertStatementsVisitor(ContextAwareTransformer, RemoveEmptyBlocks):
