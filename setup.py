@@ -20,5 +20,5 @@ if __name__ == "__main__":
         ]), ('etc/jupyter/nbconfig/notebook.d',
              ['inliner_jupyter/inliner.json'])],
         setup_requires=['pytest-runner'],
-        tests_require=['pytest', 'seaborn'],
+        tests_require=['pytest', 'pytest-ordering', 'seaborn'],
         zip_safe=False)

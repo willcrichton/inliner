@@ -40,7 +40,7 @@ class Inliner:
             pass_ = Pass(**kwargs)
 
             with ctx_pass.set(pass_):
-                self.module = cst.MetadataWrapper(self.module).visit(pass_)
+                self.module = pass_.execute(self.module)
 
         return not orig_module.deep_equals(self.module)
 

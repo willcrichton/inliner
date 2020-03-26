@@ -284,6 +284,7 @@ def function_decorator(x):
 f___dec_test = function_decorator
 def newf(*args, **kwargs):
     return f___dec_test(*args, **kwargs) + 2
+
 if "dec_test_ret" not in globals():
     dec_test_ret = newf
 args___newf = [1]
@@ -316,5 +317,25 @@ def test_inline_comprehension():
 l = [target(i) for i in range(3)]
 assert sum(l) == 6
 """
+
+    run_inline_harness(prog, target, outp, locals())
+
+
+def test_inline_preserve_comments():
+    def target():
+        # hello world
+        pass  # yep
+
+    def prog():
+        # oh no
+        target()
+
+    def outp():
+        # oh no
+        # hello world
+        pass  # yep
+        if "target_ret" not in globals():
+            target_ret = None
+        target_ret
 
     run_inline_harness(prog, target, outp, locals())

@@ -1,4 +1,5 @@
 import libcst as cst
+import libcst.matchers as m
 from typing import List, Union
 
 from .base_pass import BasePass
@@ -43,7 +44,10 @@ class DeadCodePass(BasePass):
 
         # If else was always taken, just return else branch
         elif updated_node.orelse is not None and then_branch_count == 0:
-            self.insert_statements_before_current(updated_node.orelse.body.body)
+            self.insert_statements_before_current(
+                self.reattach_comments(updated_node.orelse,
+                                       list(updated_node.orelse.body.body)))
+            self.dont_keep_comments()
             super().leave_If(original_node, updated_node)
             return cst.RemoveFromParent()
 
@@ -66,13 +70,19 @@ class DeadCodePass(BasePass):
     def leave_Expr(self, original_node, updated_node):
         final_node = super().leave_Expr(original_node, updated_node)
         if is_pure(final_node.value):
+            if m.matches(final_node, m.Expr(m.SimpleString())):
+                s = final_node.value.value
+                if s.startswith('"""'):
+                    return final_node
             return cst.RemoveFromParent()
         return final_node
 
     def on_leave(self, original_node, updated_node):
         final_node = super().on_leave(original_node, updated_node)
 
-        if (isinstance(final_node, cst.BaseStatement)
+        if (isinstance(final_node, cst.BaseStatement) and not m.matches(
+                final_node,
+                m.SimpleStatementLine(body=[m.Expr(m.SimpleString())]))
                 and self.exec_counts[original_node] == 0):
             return cst.RemoveFromParent()
 

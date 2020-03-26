@@ -3,13 +3,40 @@ import inspect
 from collections import defaultdict
 from typing import Optional, DefaultDict
 import re
+import libcst as cst
+import libcst.matchers as m
 
-from ..visitors import RemoveEmptyBlocks
+from ..visitors import InsertStatementsVisitor
 from ..contexts import ctx_inliner
 from ..tracer import Tracer, TRACER_FILE_PREFIX, TracerArgs
 
 
-class BasePass(RemoveEmptyBlocks):
+class TrimWhitespace(cst.CSTTransformer):
+    def _filter_lines(self, lines):
+        return [
+            line for i, line in enumerate(lines)
+            if line.comment is not None or (
+                i == len(lines) - 1 or lines[i + 1].comment is not None)
+        ]
+
+    def leave_Expr(self, original_node, updated_node):
+        if m.matches(updated_node, m.Expr(m.SimpleString())):
+            s = updated_node.value.value
+            if s.startswith('"""'):
+                lines = s[3:-3].splitlines()
+                return updated_node.with_changes(
+                    value=cst.SimpleString(f'"""{lines[0]}"""'))
+        return updated_node
+
+    def on_leave(self, original_node, updated_node):
+        final_node = super().on_leave(original_node, updated_node)
+        if hasattr(final_node, 'leading_lines'):
+            return final_node.with_changes(
+                leading_lines=self._filter_lines(final_node.leading_lines))
+        return final_node
+
+
+class BasePass(InsertStatementsVisitor):
     tracer_args: Optional[TracerArgs] = None
     tracer: Optional[Tracer]
     generated_vars: DefaultDict[str, int]
@@ -87,6 +114,10 @@ class BasePass(RemoveEmptyBlocks):
             self.tracer = Tracer(node, self.inliner.base_globls,
                                  self.tracer_args).trace()
             self.globls = self.tracer.globls
+
+    def execute(self, module):
+        module = cst.MetadataWrapper(module).visit(self)
+        return module.visit(TrimWhitespace())
 
     @classmethod
     def name(cls) -> str:

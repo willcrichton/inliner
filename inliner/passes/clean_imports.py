@@ -33,11 +33,13 @@ class CleanImportsPass(BasePass):
         return cst.RemoveFromParent()
 
     def leave_Module(self, original_node, updated_node):
+        final_node = super().leave_Module(original_node, updated_node)
         imports_str = cst.Module(
             body=[cst.SimpleStatementLine([i]) for i in self.imports]).code
         sorted_imports = cst.parse_module(
             SortImports(file_contents=imports_str).output)
 
         # Add imports back to the top of the module
-        return updated_node.with_changes(body=sorted_imports.body +
-                                         list(updated_node.body))
+        new_body = sorted_imports.body + list(final_node.body)
+
+        return final_node.with_changes(body=new_body)

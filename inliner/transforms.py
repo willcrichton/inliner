@@ -349,9 +349,9 @@ def inline_function(func_obj,
             for line in call_str.splitlines()
         ]
         first_stmt = new_stmts[0]
-        new_stmts[0] = first_stmt.with_changes(leading_lines=[cst.EmptyLine()] +
-                                               header_comment +
-                                               list(first_stmt.leading_lines))
+        new_stmts[0] = first_stmt.with_changes(
+            leading_lines=[cst.EmptyLine(indent=False)] + header_comment +
+            list(first_stmt.leading_lines))
 
     return new_stmts
 

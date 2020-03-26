@@ -8,37 +8,16 @@ from libcst.metadata import ExpressionContext
 
 from .common import (ExpressionContextProvider, ScopeProvider, a2s,
                      make_assign, parse_expr, parse_module, parse_statement)
-from .insert_statements import InsertStatementsVisitor
+from .insert_statements import \
+    InsertStatementsVisitor as _InsertStatementsVisitor
 
 
-class RemoveEmptyBlocks(InsertStatementsVisitor):
+class InsertStatementsVisitor(_InsertStatementsVisitor):
     def __init__(self):
         super().__init__(CodemodContext())
 
-    def leave_If(self, original_node,
-                 updated_node) -> Union[cst.BaseStatement, cst.RemovalSentinel]:
-        if (updated_node.orelse is not None
-                and len(updated_node.orelse.body.body) == 0):
-            updated_node = updated_node.with_changes(orelse=None)
 
-        return super().leave_If(original_node, updated_node)
-
-    def on_leave(self, original_node, updated_node):
-        final_node = super().on_leave(original_node, updated_node)
-
-        if isinstance(final_node,
-                      (cst.SimpleStatementLine, cst.SimpleStatementSuite)):
-            if len(final_node.body) == 0:
-                return cst.RemoveFromParent()
-
-        elif isinstance(final_node, cst.BaseCompoundStatement):
-            if len(final_node.body.body) == 0:
-                return cst.RemoveFromParent()
-
-        return final_node
-
-
-class ReplaceReturn(RemoveEmptyBlocks):
+class ReplaceReturn(InsertStatementsVisitor):
     statement_types = (cst.SimpleStatementLine, cst.SimpleStatementSuite,
                        cst.BaseCompoundStatement)
 

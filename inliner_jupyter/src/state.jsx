@@ -212,7 +212,8 @@ export class InlineState {
       'inline',
       'dead_code',
       'copy_propagation',
-      'clean_imports'
+      'unused_vars',
+      'clean_imports',
     ];
 
     await run_until(passes);

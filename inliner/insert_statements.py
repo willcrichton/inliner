@@ -4,30 +4,38 @@
 # LICENSE file in the root directory of this source tree.
 #
 # pyre-strict
-from typing import List, NamedTuple, Optional, Sequence, Set, Union
+from dataclasses import dataclass
+from typing import List, Optional, Sequence, Set, Union
 
 import libcst as cst
 from libcst.codemod._context import CodemodContext
 from libcst.codemod._visitor import ContextAwareTransformer
 
 
-class StatementContext(NamedTuple):
+@dataclass
+class StatementContext:
     # List of statements to insert before the current statement
     before_stmts: List[cst.BaseStatement]
 
     # List of statements to insert after the current statement
     after_stmts: List[cst.BaseStatement]
 
+    keep_comments: bool
 
-class BlockContext(NamedTuple):
+
+@dataclass
+class BlockContext:
     # Ordered list of all statements accumulated into the new block body
     new_body: List[cst.BaseStatement]
 
     # Set of all inserted statements (through insert_* methods)
     added_stmts: Set[cst.BaseStatement]
 
+    hanging_lines: List[cst.EmptyLine]
 
-class InsertStatementsVisitorContext(NamedTuple):
+
+@dataclass
+class InsertStatementsVisitorContext:
     """
     Context for the InsertStatementsVisitor about which statements
     have been requested to insert before/after the current one.
@@ -40,7 +48,39 @@ class InsertStatementsVisitorContext(NamedTuple):
     ctx_block: List[BlockContext]
 
 
-class InsertStatementsVisitor(ContextAwareTransformer):
+class RemoveEmptyBlocks(cst.CSTTransformer):
+    def leave_SimpleStatementLine(self, original_node, updated_node):
+        final_node = super().leave_SimpleStatementLine(original_node,
+                                                       updated_node)
+        if len(final_node.body) == 0:
+            return cst.RemoveFromParent()
+        return final_node
+
+    def leave_If(self, original_node, updated_node):
+        final_node = super().leave_If(original_node, updated_node)
+        if not isinstance(final_node, cst.RemovalSentinel):
+            if (final_node.orelse is not None
+                    and len(final_node.orelse.body.body) == 0):
+                final_node = final_node.with_changes(orelse=None)
+
+            if len(final_node.body.body) == 0:
+                return cst.RemoveFromParent()
+
+        return final_node
+
+    # def on_leave(self, original_node, updated_node):
+    #     final_node = super().on_leave(original_node, updated_node)
+    #     if isinstance(final_node,
+    #                   (cst.SimpleStatementLine, cst.SimpleStatementSuite)):
+
+    #     elif isinstance(final_node, cst.BaseCompoundStatement):
+    #         if len(final_node.body.body) == 0:
+    #             return cst.RemoveFromParent()
+
+    #     return final_node
+
+
+class InsertStatementsVisitor(ContextAwareTransformer, RemoveEmptyBlocks):
     """
     Allows transformers to insert multiple statements before and after the currently-visited statement.
 
@@ -123,9 +163,29 @@ class InsertStatementsVisitor(ContextAwareTransformer):
         ), "InsertStatementVisitor is inserting a statement before having entered a statement"
         ctx.ctx_stmt[-1].after_stmts.extend(stmts)
 
+    def dont_keep_comments(self) -> None:
+        ctx = self._context()
+        ctx.ctx_stmt[-1].keep_comments = False
+
+    def reattach_comments(self, original_node, new_node):
+        if isinstance(new_node, list):
+            if len(new_node) == 0:
+                return new_node
+            first_node = new_node[0]
+            return [
+                first_node.with_changes(
+                    leading_lines=list(original_node.leading_lines) +
+                    list(first_node.leading_lines))
+            ] + new_node[1:]
+        else:
+            return new_node.with_changes(
+                leading_lines=list(original_node.leading_lines) +
+                list(new_node.leading_lines))
+
     def _visit_block(self) -> None:
         ctx = self._context()
-        ctx.ctx_block.append(BlockContext(new_body=[], added_stmts=set()))
+        ctx.ctx_block.append(
+            BlockContext(new_body=[], added_stmts=set(), hanging_lines=[]))
 
     def visit_IndentedBlock(self, node: cst.IndentedBlock) -> Optional[bool]:
         self._visit_block()
@@ -164,7 +224,19 @@ class InsertStatementsVisitor(ContextAwareTransformer):
 
     def _visit_stmt(self, node: cst.BaseStatement) -> None:
         ctx = self._context()
-        ctx.ctx_stmt.append(StatementContext(before_stmts=[], after_stmts=[]))
+        ctx.ctx_stmt.append(
+            StatementContext(before_stmts=[],
+                             after_stmts=[],
+                             keep_comments=True))
+
+    def _add_hanging_lines(self, node: cst.BaseStatement,
+                           ctx: BlockContext) -> cst.BaseStatement:
+        if len(ctx.hanging_lines) > 0 and hasattr(node, 'leading_lines'):
+            new_node = node.with_changes(leading_lines=ctx.hanging_lines +
+                                         list(node.leading_lines))
+            ctx.hanging_lines.clear()
+            return new_node
+        return node
 
     def _leave_stmt(
             self,
@@ -178,14 +250,29 @@ class InsertStatementsVisitor(ContextAwareTransformer):
         ctx_block = ctx.ctx_block[-1]
         ctx_stmt = ctx.ctx_stmt.pop()
 
-        ctx_block.new_body.extend(ctx_stmt.before_stmts)
-        ctx_block.added_stmts.update(set(ctx_stmt.before_stmts))
+        should_insert = not isinstance(final_node, cst.RemovalSentinel)
+        if hasattr(original_node, 'leading_lines') and ctx_stmt.keep_comments:
+            ctx_block.hanging_lines.extend(original_node.leading_lines)
 
-        if isinstance(final_node, cst.BaseStatement):
+            if should_insert:
+                final_node = final_node.with_changes(leading_lines=[])
+
+        if len(ctx_stmt.before_stmts) > 0:
+            before_stmts = [
+                self._add_hanging_lines(ctx_stmt.before_stmts[0], ctx_block)
+            ] + ctx_stmt.before_stmts[1:]
+            ctx_block.new_body.extend(before_stmts)
+            ctx_block.added_stmts.update(set(before_stmts))
+
+        if should_insert:
+            final_node = self._add_hanging_lines(final_node, ctx_block)
             ctx_block.new_body.append(final_node)
 
-        ctx_block.new_body.extend(ctx_stmt.after_stmts)
-        ctx_block.added_stmts.update(set(ctx_stmt.after_stmts))
+        if len(ctx_stmt.after_stmts) > 0:
+            ctx_block.new_body.extend(ctx_stmt.after_stmts)
+            ctx_block.added_stmts.update(set(ctx_stmt.after_stmts))
+
+        return final_node
 
     def visit_SimpleStatementLine(self, node: cst.SimpleStatementLine
                                   ) -> Optional[bool]:
@@ -199,8 +286,7 @@ class InsertStatementsVisitor(ContextAwareTransformer):
     ) -> Union[cst.BaseStatement, cst.RemovalSentinel]:
         final_node = super().leave_SimpleStatementLine(original_node,
                                                        updated_node)
-        self._leave_stmt(original_node, final_node)
-        return final_node
+        return self._leave_stmt(original_node, final_node)
 
     def visit_If(self, node: cst.If) -> Optional[bool]:
         self._visit_stmt(node)
@@ -212,8 +298,7 @@ class InsertStatementsVisitor(ContextAwareTransformer):
             updated_node: cst.If,
     ) -> Union[cst.BaseStatement, cst.RemovalSentinel]:
         final_node = super().leave_If(original_node, updated_node)
-        self._leave_stmt(original_node, final_node)
-        return final_node
+        return self._leave_stmt(original_node, final_node)
 
     def visit_Try(self, node: cst.Try) -> Optional[bool]:
         self._visit_stmt(node)
@@ -225,8 +310,7 @@ class InsertStatementsVisitor(ContextAwareTransformer):
             updated_node: cst.Try,
     ) -> Union[cst.BaseStatement, cst.RemovalSentinel]:
         final_node = super().leave_Try(original_node, updated_node)
-        self._leave_stmt(original_node, final_node)
-        return final_node
+        return self._leave_stmt(original_node, final_node)
 
     def visit_FunctionDef(self, node: cst.FunctionDef) -> Optional[bool]:
         self._visit_stmt(node)
@@ -238,8 +322,7 @@ class InsertStatementsVisitor(ContextAwareTransformer):
             updated_node: cst.FunctionDef,
     ) -> Union[cst.BaseStatement, cst.RemovalSentinel]:
         final_node = super().leave_FunctionDef(original_node, updated_node)
-        self._leave_stmt(original_node, final_node)
-        return final_node
+        return self._leave_stmt(original_node, final_node)
 
     def visit_ClassDef(self, node: cst.ClassDef) -> Optional[bool]:
         self._visit_stmt(node)
@@ -251,8 +334,7 @@ class InsertStatementsVisitor(ContextAwareTransformer):
             updated_node: cst.ClassDef,
     ) -> Union[cst.BaseStatement, cst.RemovalSentinel]:
         final_node = super().leave_ClassDef(original_node, updated_node)
-        self._leave_stmt(original_node, final_node)
-        return final_node
+        return self._leave_stmt(original_node, final_node)
 
     def visit_With(self, node: cst.With) -> Optional[bool]:
         self._visit_stmt(node)
@@ -264,8 +346,7 @@ class InsertStatementsVisitor(ContextAwareTransformer):
             updated_node: cst.With,
     ) -> Union[cst.BaseStatement, cst.RemovalSentinel]:
         final_node = super().leave_With(original_node, updated_node)
-        self._leave_stmt(original_node, final_node)
-        return final_node
+        return self._leave_stmt(original_node, final_node)
 
     def visit_For(self, node: cst.For) -> Optional[bool]:
         self._visit_stmt(node)
@@ -277,8 +358,7 @@ class InsertStatementsVisitor(ContextAwareTransformer):
             updated_node: cst.For,
     ) -> Union[cst.BaseStatement, cst.RemovalSentinel]:
         final_node = super().leave_For(original_node, updated_node)
-        self._leave_stmt(original_node, final_node)
-        return final_node
+        return self._leave_stmt(original_node, final_node)
 
     def visit_While(self, node: cst.While) -> Optional[bool]:
         self._visit_stmt(node)
@@ -290,5 +370,4 @@ class InsertStatementsVisitor(ContextAwareTransformer):
             updated_node: cst.While,
     ) -> Union[cst.BaseStatement, cst.RemovalSentinel]:
         final_node = super().leave_While(original_node, updated_node)
-        self._leave_stmt(original_node, final_node)
-        return final_node
+        return self._leave_stmt(original_node, final_node)

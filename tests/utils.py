@@ -2,8 +2,30 @@ from inliner import Inliner
 from inliner.common import parse_module, parse_statement
 from inliner.targets import make_target
 
-import difflib
+import libcst as cst
 import inspect
+
+
+def func_to_module(f):
+    func = parse_statement(inspect.getsource(f))
+    return cst.Module(body=func.body.body)
+
+
+def run_visitor_harness(inp, outp, visitor):
+    inp = func_to_module(inp)
+    target_outp = func_to_module(outp)
+    generated_outp = cst.MetadataWrapper(inp).visit(visitor)
+
+    target_code = target_outp.code
+    generated_code = generated_outp.code
+    if generated_code != target_code:
+        print('GENERATED')
+        print(generated_code)
+        print('=' * 30)
+        print('TARGET')
+        print(target_code)
+        print('=' * 30)
+        assert False
 
 
 def run_pass_harness(prog, pass_, outp, locls, fixpoint=False):
@@ -35,13 +57,6 @@ def run_pass_harness(prog, pass_, outp, locls, fixpoint=False):
         print('TARGET')
         print(target_code)
         print('=' * 30)
-        print('DIFF')
-        diffs = difflib.unified_diff(generated_code,
-                                     target_code,
-                                     fromfile='GENERATED',
-                                     tofile='TARGET')
-        for diff in diffs:
-            print(diff)
         assert False
 
     # Make sure we don't violate any assertions in generated code

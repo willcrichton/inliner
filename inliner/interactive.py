@@ -83,6 +83,9 @@ class FindUnexecutedBlocks(cst.CSTVisitor):
             pos = self.get_metadata(PositionProvider, node.orelse)
             self.unexecuted.append(pos.start.line)
 
+    def on_visit(self, node):
+        return super().on_visit(node)
+
 
 class HistoryEntry(NamedTuple):
     module: cst.Module
@@ -104,6 +107,18 @@ class InteractiveInliner(Inliner):
         super().__init__(*args, **kwargs)
         self.history = [HistoryEntry(module=self.module, pass_=None)]
 
+    def inline(self, targets=[], **kwargs):
+        ret = super().inline(targets, **kwargs)
+        self.history.append(
+            HistoryEntry(module=self.module, pass_=InlinePass, targets=targets))
+        return ret
+
+    def run_pass(self, Pass, **kwargs):
+        ret = super().run_pass(Pass, **kwargs)
+        if Pass is not InlinePass:
+            self.history.append(HistoryEntry(module=self.module, pass_=Pass))
+        return ret
+
     def target_suggestions(self):
         with ctx_inliner.set(self):
             globls = Tracer(self.module, globls=self.base_globls).trace().globls
@@ -118,18 +133,6 @@ class InteractiveInliner(Inliner):
         finder = FindUnexecutedBlocks(tracer)
         cst.MetadataWrapper(self.module, unsafe_skip_copy=True).visit(finder)
         return sorted(finder.unexecuted)
-
-    def inline(self, targets=[], **kwargs):
-        ret = super().inline(targets, **kwargs)
-        self.history.append(
-            HistoryEntry(module=self.module, pass_=InlinePass, targets=targets))
-        return ret
-
-    def run_pass(self, Pass, **kwargs):
-        ret = super().run_pass(Pass, **kwargs)
-        if Pass is not InlinePass:
-            self.history.append(HistoryEntry(module=self.module, pass_=Pass))
-        return ret
 
     def undo(self):
         self.history.pop()

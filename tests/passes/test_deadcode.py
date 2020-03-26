@@ -137,3 +137,26 @@ def test_deadcode_pure_expr():
         # pure
 
     run_pass_harness(prog, DeadCodePass, outp, locals())
+
+
+def test_deadcode_keep_comments():
+    def prog():
+        # hello world
+        """don't remove me"""
+        # please remove me
+        if False:
+            # and remove me
+            pass
+        # please keep me
+        else:
+            # and keep me
+            pass
+
+    def outp():
+        # hello world
+        """don't remove me"""
+        # please keep me
+        # and keep me
+        pass
+
+    run_pass_harness(prog, DeadCodePass, outp, locals())

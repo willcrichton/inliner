@@ -41,14 +41,22 @@ class InsertDummyTransformer(cst.CSTTransformer):
     def __init__(self):
         super().__init__()
         self.node_map = {}
+        self.in_function = 0
 
-    def visit_FunctionDef(self, node) -> bool:
-        return False
+    def visit_FunctionDef(self, node):
+        self.in_function += 1
+        return super().visit_FunctionDef(node)
+
+    def leave_FunctionDef(self, original_node, updated_node):
+        self.in_function -= 1
+        return super().leave_FunctionDef(original_node, updated_node)
 
     def leave_IndentedBlock(self, original_node, updated_node) -> cst.BaseSuite:
-        read_stmt = parse_statement("__name__")
-        return updated_node.with_changes(body=[read_stmt] +
-                                         list(updated_node.body))
+        if self.in_function == 0:
+            read_stmt = parse_statement("__name__")
+            return updated_node.with_changes(body=[read_stmt] +
+                                             list(updated_node.body))
+        return updated_node
 
     def on_leave(self, original_node, updated_node):
         final_node = super().on_leave(original_node, updated_node)
