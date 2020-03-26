@@ -1,8 +1,9 @@
-import ast
 import importlib
 import inspect
+import libcst as cst
+from libcst.metadata import PositionProvider
 
-from .contexts import ctx_inliner
+from .contexts import ctx_pass
 
 
 class InlineTarget:
@@ -55,6 +56,24 @@ class FunctionTarget(InlineTarget):
             return False
 
 
+class CursorTarget(InlineTarget):
+    def to_string(self):
+        pass
+
+    def should_inline(self, code, obj):
+        pass_ = ctx_pass.get()
+        pos = pass_.get_metadata(PositionProvider, code, None)
+        if pos is None:
+            return False
+
+        (line, column) = self.target
+        if (pos.start.line <= line and line <= pos.end.line
+                and pos.start.column <= column and column <= pos.end.column):
+            return True
+
+        return False
+
+
 class ClassTarget(InlineTarget):
     """
     Inline this class and all of its methods
@@ -63,7 +82,7 @@ class ClassTarget(InlineTarget):
         return f'{self.target.__module__}.{self.target.__qualname__}'
 
     def should_inline(self, code, obj):
-        inliner = ctx_inliner.get()
+        pass_ = ctx_pass.get()
 
         # e.g. Target()
         try:
@@ -78,9 +97,9 @@ class ClassTarget(InlineTarget):
         # e.g. f = Target(); Target.foo(f)
         # https://stackoverflow.com/questions/3589311/get-defining-class-of-unbound-method-object-in-python-3
         if inspect.isfunction(obj):
-            if isinstance(code, ast.Attribute):
+            if isinstance(code, cst.Attribute):
                 try:
-                    cls = inliner._eval(code.value)
+                    cls = pass_.eval(code.value)
 
                     if isinstance(cls, self.target):
                         unbound_method = True
@@ -91,7 +110,7 @@ class ClassTarget(InlineTarget):
             else:
                 qname = obj.__qualname__.split('.')
                 try:
-                    attr = inliner._eval('.'.join(qname[:-1]))
+                    attr = pass_.eval('.'.join(qname[:-1]))
                     unbound_method = issubclass(self.target, attr)
                 except Exception:
                     unbound_method = False

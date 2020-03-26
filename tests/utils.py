@@ -66,7 +66,16 @@ def run_pass_harness(prog, pass_, outp, locls, fixpoint=False):
 def run_inline_harness(prog, target, outp, locls, **kwargs):
     targets = [make_target(t) for t in target] if isinstance(
         target, list) else [make_target(target)]
-    method = lambda i: lambda: i.inline(targets)
+
+    def method(i):
+        for t in targets:
+            i.add_target(t)
+
+        def inner():
+            return i.run_pass('inline')
+
+        return inner
+
     return run_pass_harness(prog, method, outp, locls, **kwargs)
 
 
@@ -75,8 +84,11 @@ def run_optimize_harness(prog, target, outp, locls):
         target, list) else [make_target(target)]
 
     def method(i):
+        for t in targets:
+            i.add_target(t)
+
         def inner():
-            return i.inline(targets) | i.optimize()
+            return i.run_pass('inline') | i.optimize()
 
         return inner
 

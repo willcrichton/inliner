@@ -47,7 +47,8 @@ def test_interactive_undo():
 
     i = InteractiveInliner(prog)
     orig_module = i.module
-    assert i.inline(targets=[FunctionTarget(target)])
+    i.add_target(FunctionTarget(target))
+    assert i.run_pass('inline')
 
     i.undo()
     assert orig_module.deep_equals(i.module)
@@ -58,8 +59,8 @@ def test_interactive_debug():
         assert json.dumps({}) == '{}'
 
     i = InteractiveInliner(prog)
-    orig_module = i.module
-    assert i.inline(targets=[FunctionTarget(json.dumps)])
+    i.add_target(FunctionTarget(json.dumps))
+    assert i.run_pass('inline')
 
     debug_str = """
 from inliner import Inliner
@@ -68,7 +69,8 @@ def f():
     assert json.dumps({}) == '{}'
 
 i = Inliner(f)
-i.inline(targets=["json.dumps"])
+i.add_target("json.dumps")
+i.run_pass("inline")
 
 print(i.code())
 i.execute()"""

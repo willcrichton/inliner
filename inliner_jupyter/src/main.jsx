@@ -127,17 +127,16 @@ sp.check_call(shlex.split("open 'file://${path}'"))
   return <div>
     <div className='inline-targets'>
       {(state && state.targets.length > 0)
-      ? state.targets.map((target) =>
-        <div key={target.name}>
-          <a href='#' onClick={open_target(target.path)}>{target.name}</a>
-          <button className='btn btn-default' onClick={remove_target(target)}>
-            <i className='fa fa-minus' />
-          </button>
-        </div>)
-      : <span className='inline-targets-missing'>No inline targets added</span>}
+        ? state.targets.map((target) =>
+          <div key={target.name}>
+            <a href='#' onClick={open_target(target.path)}>{target.name}</a>
+            <button className='btn btn-default' onClick={remove_target(target)}>
+              <i className='fa fa-minus' />
+            </button>
+          </div>)
+        : <span className='inline-targets-missing'>No inline targets added</span>}
     </div>
     <h3>
-      Suggestions &nbsp;
       <button className="inline-refresh-targets"
               data-intro="Once you've completed inlining, click here to refresh the set of possible modules to inline"
               data-step="5"
@@ -183,6 +182,19 @@ sp.check_call(shlex.split("open 'file://${path}'"))
           intro_step(intro, 3);
         }} />
     </div>
+    <div className='inline-target-add'>
+      <input placeholder='Add a target...'
+             onFocus={() => { Jupyter.keyboard_manager.disable() }}
+             onBlur={() => { Jupyter.keyboard_manager.enable() }}
+             onKeyDown={(e) => {
+               const input = e.target;
+               if (e.key === 'Enter') {
+                 state.targets.push({name: input.value});
+                 input.value = '';
+                 input.blur();
+               }
+             }} />
+    </div>
   </div>;
 });
 
@@ -196,6 +208,21 @@ let Passes = mobx_react.observer(() => {
 
   return <div className='inline-passes'>
     <div>
+      <button className='btn btn-default'
+              onClick={async () => {
+                await handle_error('inline', state, () => {
+                  const cursor = get_env().get_cursor_pos();
+                  console.log(cursor);
+                  if (cursor === null) {
+                    throw "You must click on the function in the code cell that you want to inline.";
+                  }
+                  state.inline(cursor);
+                });
+              }}>
+        Inline
+      </button>
+    </div>
+    <div>
       <button className="btn btn-default"
               data-intro="Click 'Optimize' to inline and clean code from the inline targets"
               data-step="4"
@@ -207,24 +234,20 @@ let Passes = mobx_react.observer(() => {
       </button>
     </div>
     {dev_mode()
-    ? passes.map((pass) => {
-      let pass_name = pass.replace('_', ' ');
-    pass_name = pass_name.charAt(0).toUpperCase() + pass_name.slice(1);
-
-      return <div key={pass}>
-        <button data-intro={pass_name == 'inline' ?
-                            'You can run passes individually, like inlining' : null}
-                data-step="6"
-                className='btn btn-default' className="btn btn-default"
-                onClick={() => handle_error(pass, state, async () => {
-                  const change = await state.run_pass(pass);
-                  console.log('Change:', change);
-                })}>
-          {pass_name}
-        </button>
-      </div>;
-    })
-    : null}
+      ? passes.map((pass) => {
+        let pass_name = pass.replace('_', ' ');
+        pass_name = pass_name.charAt(0).toUpperCase() + pass_name.slice(1);
+        return <div key={pass}>
+          <button className='btn btn-default' className="btn btn-default"
+                  onClick={() => handle_error(pass, state, async () => {
+                    const change = await state.run_pass(pass);
+                    console.log('Change:', change);
+                  })}>
+            {pass_name}
+          </button>
+        </div>;
+      })
+      : null}
   </div>;
 });
 
@@ -372,7 +395,7 @@ export class Inliner extends React.Component {
             </h1>
             <span>
               <CreateNewButton />
-              <TutorialButton />
+              { /* <TutorialButton /> */ }
               <DevButton />
               {dev_mode()
               ? <span>

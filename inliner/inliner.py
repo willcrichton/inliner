@@ -4,9 +4,8 @@ import libcst as cst
 
 from .common import EvalException, a2s, get_function_locals, parse_module
 from .contexts import ctx_inliner, ctx_pass
-from .passes import (PASSES, BasePass, CleanImportsPass, CopyPropagationPass,
-                     DeadCodePass, InlinePass, RecordToVarsPass,
-                     UnusedVarsPass)
+from .passes import (PASSES, CleanImportsPass, CopyPropagationPass,
+                     DeadCodePass, InlinePass, RecordToVarsPass, UnusedVarsPass)
 from .targets import make_target
 
 
@@ -31,12 +30,14 @@ class Inliner:
         self.length_inlined = 0
         self.targets = targets if targets is not None else []
 
+    def _name_to_pass(self, name):
+        return next(p for p in PASSES if p.name() == name)
+
     def run_pass(self, Pass, **kwargs):
         orig_module = self.module
         with ctx_inliner.set(self):
             if isinstance(Pass, str):
-                Pass = next(p for p in PASSES if p.name() == Pass)
-            assert issubclass(Pass, BasePass)
+                Pass = self._name_to_pass(Pass)
             pass_ = Pass(**kwargs)
 
             with ctx_pass.set(pass_):
@@ -45,22 +46,14 @@ class Inliner:
         return not orig_module.deep_equals(self.module)
 
     def add_target(self, target):
-        self.targets.append(make_target(target))
-
-    def inline(self, targets=[], **kwargs):
-        for t in targets:
-            self.add_target(t)
-
-        changed = self.run_pass(InlinePass, **kwargs)
-
-        if len(targets) > 0:
-            self.targets = self.targets[:-len(targets)]
-
-        return changed
+        target = make_target(target)
+        self.targets.append(target)
+        return target
 
     def optimize(self, passes=None):
         if passes is None:
             passes = [
+                InlinePass,
                 DeadCodePass,
                 CopyPropagationPass,
                 UnusedVarsPass,

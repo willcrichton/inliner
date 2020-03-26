@@ -143,7 +143,7 @@ gray = mpl.colors.rgb2hex((lum, lum, lum))
 
 # Assign object attributes
 
-linewidth_____init__ = mpl.rcParams["lines.linewidth"]
+linewidth___boxplot = mpl.rcParams["lines.linewidth"]
 
 ax___boxplot = plt.gca()
 kwargs___boxplot.update(dict(whis=whis___boxplot))
@@ -178,20 +178,20 @@ for i, group_data in enumerate(plot_data):
         box.update(dict(facecolor=color,
                         zorder=.9,
                         edgecolor=gray,
-                        linewidth=linewidth_____init__))
+                        linewidth=linewidth___boxplot))
         box.update(props["box"])
     for whisk in artist_dict["whiskers"]:
         whisk.update(dict(color=gray,
-                          linewidth=linewidth_____init__,
+                          linewidth=linewidth___boxplot,
                           linestyle="-"))
         whisk.update(props["whisker"])
     for cap in artist_dict["caps"]:
         cap.update(dict(color=gray,
-                        linewidth=linewidth_____init__))
+                        linewidth=linewidth___boxplot))
         cap.update(props["cap"])
     for med in artist_dict["medians"]:
         med.update(dict(color=gray,
-                        linewidth=linewidth_____init__))
+                        linewidth=linewidth___boxplot))
         med.update(props["median"])
     for fly in artist_dict["fliers"]:
         fly.update(dict(markerfacecolor=gray,

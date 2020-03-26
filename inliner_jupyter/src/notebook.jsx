@@ -74,6 +74,16 @@ class NotebookEnv extends Env {
     return cell.code_mirror.getSelection().toString();
   }
 
+  get_cursor_pos() {
+    const cell = Jupyter.notebook.get_selected_cell();
+    const pos = cell.code_mirror.getCursor();
+    if (pos.xRel) {
+      return {line: pos.line + 1, column: pos.ch};
+    } else {
+      return null;
+    }
+  }
+
   create_new_cell(text) {
     let new_cell = Jupyter.notebook.insert_cell_below();
     Jupyter.notebook.select_next();

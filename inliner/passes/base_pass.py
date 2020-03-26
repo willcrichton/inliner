@@ -5,6 +5,7 @@ from typing import Optional, DefaultDict
 import re
 import libcst as cst
 import libcst.matchers as m
+from libcst.metadata import PositionProvider
 
 from ..visitors import InsertStatementsVisitor
 from ..contexts import ctx_inliner
@@ -40,6 +41,8 @@ class BasePass(InsertStatementsVisitor):
     tracer_args: Optional[TracerArgs] = None
     tracer: Optional[Tracer]
     generated_vars: DefaultDict[str, int]
+
+    METADATA_DEPENDENCIES = (PositionProvider, )
 
     def __init__(self) -> None:
         super().__init__()

@@ -62,7 +62,7 @@ class InlinePass(BasePass):
         except EvalException:
             return call
 
-        if self._should_inline(func, func_obj):
+        if self._should_inline(original_node.func, func_obj):
             func_name = self._func_name(func)
             ret_var = self.fresh_var(f'{func_name}_ret')
 

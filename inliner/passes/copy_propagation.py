@@ -1,12 +1,12 @@
 import libcst as cst
 import libcst.matchers as m
-from libcst.metadata import ScopeProvider
+from libcst.metadata import ScopeProvider, PositionProvider
 
 from .base_pass import BasePass
 
 
 class PropagationPass(BasePass):
-    METADATA_DEPENDENCIES = (ScopeProvider, )
+    METADATA_DEPENDENCIES = (ScopeProvider, PositionProvider)
 
     def __init__(self):
         super().__init__()

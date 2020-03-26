@@ -1,6 +1,6 @@
 import inspect
 import textwrap
-from typing import List, NamedTuple, Optional
+from typing import NamedTuple
 
 import libcst as cst
 from libcst.metadata import PositionProvider
@@ -9,8 +9,7 @@ from .common import EvalException, ScopeProvider, a2s
 from .contexts import ctx_inliner
 from .inliner import Inliner
 from .passes.base_pass import BasePass
-from .passes.inline import InlinePass
-from .targets import InlineTarget
+from .targets import InlineTarget, CursorTarget
 from .tracer import Tracer, TracerArgs
 
 
@@ -87,36 +86,55 @@ class FindUnexecutedBlocks(cst.CSTVisitor):
         return super().on_visit(node)
 
 
-class HistoryEntry(NamedTuple):
-    module: cst.Module
-    pass_: Optional[BasePass]
-    targets: Optional[List[InlineTarget]] = None
+class HistoryEntry:
+    def to_code(self, name):
+        raise NotImplementedError
 
-    def to_code(self, inliner):
+    def undo(self, inliner):
+        raise NotImplementedError
+
+
+class RunPassHistory(NamedTuple, HistoryEntry):
+    prev_module: cst.Module
+    pass_: BasePass
+
+    def to_code(self, name):
         pass_name = self.pass_.name()
-        if self.pass_ is InlinePass:
-            assert self.targets is not None
-            targets_str = ','.join([f'"{t.to_string()}"' for t in self.targets])
-            return f'{inliner}.{pass_name}(targets=[{targets_str}])'
-        else:
-            return f'{inliner}.{pass_name}()'
+        return f'{name}.run_pass("{pass_name}")'
+
+    def undo(self, inliner):
+        inliner.module = self.prev_module
+
+
+class AddTargetHistory(NamedTuple, HistoryEntry):
+    target: InlineTarget
+
+    def to_code(self, name):
+        return f'{name}.add_target("{self.target.to_string()}")'
+
+    def undo(self, inliner):
+        inliner.remove_target(self.target)
 
 
 class InteractiveInliner(Inliner):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.history = [HistoryEntry(module=self.module, pass_=None)]
+        self.history = []
+        self.orig_module = self.module
 
-    def inline(self, targets=[], **kwargs):
-        ret = super().inline(targets, **kwargs)
-        self.history.append(
-            HistoryEntry(module=self.module, pass_=InlinePass, targets=targets))
-        return ret
+    def add_target(self, target):
+        target = super().add_target(target)
+        self.history.append(AddTargetHistory(target=target))
 
     def run_pass(self, Pass, **kwargs):
+        prev_module = self.module
+        if isinstance(Pass, str):
+            Pass = self._name_to_pass(Pass)
         ret = super().run_pass(Pass, **kwargs)
-        if Pass is not InlinePass:
-            self.history.append(HistoryEntry(module=self.module, pass_=Pass))
+        self.history.append(RunPassHistory(prev_module=prev_module, pass_=Pass))
+        self.targets = [
+            t for t in self.targets if not isinstance(t, CursorTarget)
+        ]
         return ret
 
     def target_suggestions(self):
@@ -135,17 +153,13 @@ class InteractiveInliner(Inliner):
         return sorted(finder.unexecuted)
 
     def undo(self):
-        self.history.pop()
-        assert len(self.history) > 0
-        self.module = self.history[-1].module
+        self.history.pop().undo(self)
 
     def debug(self):
         with ctx_inliner.set(self):
-            f_body = textwrap.indent(
-                a2s(self.history[0].module).rstrip(), ' ' * 4)
+            f_body = textwrap.indent(a2s(self.orig_module).rstrip(), ' ' * 4)
 
-            passes = '\n'.join(
-                [entry.to_code('i') for entry in self.history[1:]])
+            passes = '\n'.join([entry.to_code('i') for entry in self.history])
 
             return f'''
 from inliner import Inliner

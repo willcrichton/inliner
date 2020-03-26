@@ -21,6 +21,7 @@ class PythonBridge {
   async setup(contents) {
     let src = `
 from inliner import InteractiveInliner
+from inliner.targets import CursorTarget
 import json
 ${this.name} = InteractiveInliner(${JSON.stringify(contents)}, globls=globals())`;
     return check_call(src);
@@ -67,6 +68,10 @@ print(json.dumps(${this.name}.code_folding()))`);
     return outp == 'True';
   }
 
+  async add_target(target) {
+    return check_call(`${this.name}.add_target(${target})`);
+  }
+
   async sync_targets(targets) {
     let names = targets.map((t) => t.name);
     var save = `
@@ -78,7 +83,12 @@ for target in json.loads('${JSON.stringify(names)}'):
   }
 
   async last_pass() {
-    return check_output(`print(${this.name}.history[-1][1])`);
+    try {
+      const ret = await check_output(`print(${this.name}.history[-1][1])`);
+      return ret;
+    } catch (error) {
+      return null;
+    }
   }
 
   async debug() {
@@ -164,10 +174,6 @@ export class InlineState {
 
   @spinner
   async run_pass(pass, fixpoint = false) {
-    if (pass == 'inline' && this.targets.length == 0) {
-      throw "Must have at least one inline target to run inline pass";
-    }
-
     let ret = await this.bridge.run_pass(pass, fixpoint);
     await this.update_cell();
     return ret;
@@ -188,6 +194,12 @@ export class InlineState {
   async fold_code() {
     let fold_lines = await this.bridge.code_folding();
     this.methods.fold_lines(fold_lines);
+  }
+
+  @spinner
+  async inline(cursor) {
+    await this.bridge.add_target(`CursorTarget((${cursor.line}, ${cursor.column}))`);
+    await this.run_pass('inline');
   }
 
   @spinner

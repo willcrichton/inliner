@@ -1,4 +1,5 @@
 import functools
+from inliner.targets import CursorTarget
 
 from utils import run_inline_harness
 
@@ -339,3 +340,21 @@ def test_inline_preserve_comments():
         target_ret
 
     run_inline_harness(prog, target, outp, locals())
+
+
+def test_inline_cursor():
+    def target():
+        pass
+
+    def prog():
+        # first line
+        target()
+
+    def outp():
+        # first line
+        pass
+        if "target_ret" not in globals():
+            target_ret = None
+        target_ret
+
+    run_inline_harness(prog, CursorTarget((2, 0)), outp, locals())
