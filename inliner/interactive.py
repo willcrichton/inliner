@@ -79,7 +79,7 @@ class FindUnexecutedBlocks(cst.CSTVisitor):
             pos = self.get_metadata(PositionProvider, node)
             self.unexecuted.append(pos.start.line)
 
-        elif self.exec_counts[node.orelse] == 0:
+        elif node.orelse is not None and self.exec_counts[node.orelse] == 0:
             pos = self.get_metadata(PositionProvider, node.orelse)
             self.unexecuted.append(pos.start.line)
 
