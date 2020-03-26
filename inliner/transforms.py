@@ -30,7 +30,8 @@ def bind_arguments(f_ast, call_expr, new_stmts):
 
     def rename(src, dst):
         nonlocal f_ast
-        f_ast = cst.MetadataWrapper(f_ast).visit(Rename(src, dst))
+        f_ast = cst.MetadataWrapper(f_ast, unsafe_skip_copy=True).visit(
+            Rename(src, dst))
 
     # Scope a variable name as unique to the function, and update any references
     # to it in the function
