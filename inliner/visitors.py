@@ -6,8 +6,8 @@ import libcst.matchers as m
 from libcst.codemod import CodemodContext
 from libcst.metadata import ExpressionContext
 
-from .common import (ExpressionContextProvider, ScopeProvider, a2s,
-                     make_assign, parse_expr, parse_module, parse_statement)
+from .common import (ExpressionContextProvider, ScopeProvider, a2s, make_assign,
+                     parse_expr, parse_module, parse_statement)
 from .insert_statements import \
     InsertStatementsVisitor as _InsertStatementsVisitor
 
@@ -252,15 +252,24 @@ class CollectImports(cst.CSTVisitor):
             self.imprts[name] = cst.ImportFrom(module=module, names=[alias])
 
 
+_IMPORT_CACHE = {}
+
+
 def collect_imports(obj):
     mod = inspect.getmodule(obj)
     if mod is None:
         return []
 
-    import_collector = CollectImports(mod=mod.__name__)
+    mod_name = mod.__name__
+    if mod_name in _IMPORT_CACHE:
+        return _IMPORT_CACHE[mod_name]
+
+    import_collector = CollectImports(mod=mod_name)
     obj_mod = parse_module(open(inspect.getsourcefile(obj)).read())
     obj_mod.visit(import_collector)
-    return import_collector.imprts
+    imprts = import_collector.imprts
+    _IMPORT_CACHE[mod_name] = imprts
+    return imprts
 
 
 class RemoveFunctoolsWraps(cst.CSTTransformer):
