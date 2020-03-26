@@ -5,8 +5,9 @@ from .copy_propagation import CopyPropagationPass
 from .record_to_vars import RecordToVarsPass
 from .clean_imports import CleanImportsPass
 from .unused_vars import UnusedVarsPass
+from .remove_suffixes import RemoveSuffixesPass
 
 PASSES = [
     InlinePass, DeadCodePass, CopyPropagationPass, RecordToVarsPass,
-    CleanImportsPass, UnusedVarsPass
+    CleanImportsPass, UnusedVarsPass, RemoveSuffixesPass
 ]

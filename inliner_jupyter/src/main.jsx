@@ -68,12 +68,16 @@ let CreateNewButton = () => {
     intro_step(intro, 2);
   };
 
-  return <button className="btn btn-default inline-create" onClick={on_click}
-                 title="New inliner cell"
-                 data-intro="Click on the notebook cell you want to expand, then click on this button to create an inliner cell"
-                 data-step="2">
-    <i className="fa fa-plus" />
-  </button>;
+  return <div>
+    <div>Select a code cell and click the button below to start inlining.</div>
+    <button className="btn btn-default inline-create" onClick={on_click}
+            title="New inliner cell"
+            style={{marginTop: '5px'}}
+            data-intro="Click on the notebook cell you want to expand, then click on this button to create an inliner cell"
+            data-step="2">
+      Create inliner cell
+    </button>
+  </div>;
 };
 
 let UndoButton = mobx_react.observer(() => {
@@ -92,21 +96,21 @@ let Targets = mobx_react.observer(() => {
 
   let suggestions =
     Array
-    .from(state ? state.target_suggestions.entries() : [])
-    .filter(([mod, meta]) => {
-      if (!dev_mode()) {
-        const base = mod.split('.')[0];
-        return !module_blacklist.includes(base);
-      } else {
-        return true;
-      }
-    })
-    .map(([mod, meta]) => {
-      return {
-        label: `${mod} (${meta.use})`,
-        value: mod
-      }
-    });
+      .from(state ? state.target_suggestions.entries() : [])
+      .filter(([mod, meta]) => {
+        if (!dev_mode()) {
+          const base = mod.split('.')[0];
+          return !module_blacklist.includes(base);
+        } else {
+          return true;
+        }
+      })
+      .map(([mod, meta]) => {
+        return {
+          label: `${mod} (${meta.use})`,
+          value: mod
+        }
+      });
   suggestions = _.sortBy(suggestions, (s) => s.label);
 
   let open_target = (path) => () => {
@@ -354,11 +358,9 @@ let BugButton = mobx_react.observer(() => {
 });
 
 let DevButton = mobx_react.observer(() => {
-  return <span>
-    <button className='btn btn-default' title='Dev mode'
-            onClick={toggle_dev_mode}>
-      <i className='fa fa-gears' />
-    </button>
+  return <span className={`dev-button ${dev_mode() ? "active": ""}`}
+               onClick={toggle_dev_mode}>
+    <i className='fa fa-gears' />
   </span>;
 });
 
@@ -393,30 +395,30 @@ export class Inliner extends React.Component {
               data-step="1">
               Inliner
             </h1>
-            <span>
-              <CreateNewButton />
-              { /* <TutorialButton /> */ }
-              <DevButton />
-              {dev_mode()
-              ? <span>
-                <UndoButton />
-                <DiffButton />
-                <BugButton />
-                <FoldButton />
-              </span> : null}
-            </span>
-            <div style={{display: state.current_state ? 'block' : 'none'}}>
-              <hr />
-              <div>
-                <h2>Targets</h2>
-                <Targets />
+            <DevButton />
+            {state.current_state
+              ? <div>
+                <div>
+                  <UndoButton />
+                  <DiffButton />
+                  <FoldButton />
+                  {dev_mode()
+                    ? <span>
+                      <BugButton />
+                    </span> : null}
+                </div>
+                <hr />
+                <div>
+                  <h2>Passes</h2>
+                  <Passes />
+                </div>
+                <hr />
+                <div>
+                  <h2>Targets</h2>
+                  <Targets />
+                </div>
               </div>
-              <hr />
-              <div>
-                <h2>Passes</h2>
-                <Passes />
-              </div>
-            </div>
+              : <CreateNewButton />}
             <Spinner />
           </div>
         }</mobx_react.Observer>}

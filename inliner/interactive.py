@@ -9,7 +9,7 @@ from .common import EvalException, ScopeProvider, a2s
 from .contexts import ctx_inliner
 from .inliner import Inliner
 from .passes.base_pass import BasePass
-from .targets import InlineTarget, CursorTarget
+from .targets import CursorTarget, InlineTarget
 from .tracer import Tracer, TracerArgs
 
 

@@ -232,7 +232,7 @@ export class InlineState {
     await this.run_pass('record_to_vars');
     await run_until(passes);
 
-    //await this.run_pass('remove_suffixes');
+    await this.run_pass('remove_suffixes');
     await this.fold_code();
 
     await this.refresh_target_suggestions();

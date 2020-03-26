@@ -9,12 +9,11 @@ def test_stress_json():
     def prog():
         assert json.dumps({}) == '{}'
 
-    outp = '''
-from _json import make_encoder as c_make_encoder
+    outp = '''from _json import make_encoder as c_make_encoder
 from json import _default_encoder
 from json.encoder import (INFINITY, JSONEncoder, _make_iterencode,
                           encode_basestring, encode_basestring_ascii)
-obj___dumps = {}
+obj = {}
 """Serialize ``obj`` to a JSON formatted ``str``."""
 # cached encoder
 """Return a JSON string representation of a Python data structure."""
@@ -29,7 +28,7 @@ _iterencode = c_make_encoder(
     markers, _default_encoder.default, encode_basestring_ascii, _default_encoder.indent,
     _default_encoder.key_separator, _default_encoder.item_separator, _default_encoder.sort_keys,
     _default_encoder.skipkeys, _default_encoder.allow_nan)
-iterencode_ret = _iterencode(obj___dumps, 0)
+iterencode_ret = _iterencode(obj, 0)
 encode_ret = ''.join(iterencode_ret)
 assert encode_ret == '{}'
 '''
@@ -58,15 +57,15 @@ from seaborn.palettes import (color_palette, dark_palette, husl_palette,
                               light_palette)
 from seaborn.utils import categorical_order, remove_na
 
-x___boxplot = tips.day
-y___boxplot = tips.tip
-saturation___boxplot = .75
-width___boxplot = .8
-fliersize___boxplot = 5
-whis___boxplot = 1.5
-kwargs___boxplot = {}
+x = tips.day
+y = tips.tip
+saturation = .75
+width = .8
+fliersize = 5
+whis = 1.5
+kwargs = {}
 
-orient___establish_variables = None
+orient = None
 """Convert input specification into a common representation."""
 
 # Option 2:
@@ -79,18 +78,18 @@ orient___establish_variables = None
 
         # Figure out the plotting orientation
 """Determine how the plot should be oriented based on the data."""
-orient___establish_variables = str(orient___establish_variables)
+orient = str(orient)
 
 infer_orient_ret = "v"
 
-orient___establish_variables = infer_orient_ret
+orient = infer_orient_ret
 
 # Option 2b:
 # We are grouping the data values by another variable
 # ---------------------------------------------------
 
 # Determine which role each variable will play
-vals, groups = y___boxplot, x___boxplot
+vals, groups = y, x
 
 # Get the categorical axis label
 group_label = groups.name
@@ -131,7 +130,7 @@ current_palette = utils.get_color_cycle()
 colors = color_palette(n_colors=n_colors)
 
 # Desaturate a bit because these are patches
-colors = color_palette(colors, desat=saturation___boxplot)
+colors = color_palette(colors, desat=saturation)
 
 # Convert the colors to a common representations
 rgb_colors = color_palette(colors)
@@ -143,18 +142,18 @@ gray = mpl.colors.rgb2hex((lum, lum, lum))
 
 # Assign object attributes
 
-linewidth___boxplot = mpl.rcParams["lines.linewidth"]
+linewidth = mpl.rcParams["lines.linewidth"]
 
-ax___boxplot = plt.gca()
-kwargs___boxplot.update(dict(whis=whis___boxplot))
+ax = plt.gca()
+kwargs.update(dict(whis=whis))
 
 """Make the plot."""
 """Use matplotlib to draw a boxplot on an Axes."""
-vert = orient___establish_variables == "v"
+vert = orient == "v"
 
 props = {}
 for obj in ["box", "whisker", "cap", "median", "flier"]:
-    props[obj] = kwargs___boxplot.pop(obj + "props", {})
+    props[obj] = kwargs.pop(obj + "props", {})
 
 for i, group_data in enumerate(plot_data):
 
@@ -166,49 +165,49 @@ for i, group_data in enumerate(plot_data):
 
     # Handle case where there is no non-null data
 
-    artist_dict = ax___boxplot.boxplot(box_data,
+    artist_dict = ax.boxplot(box_data,
                              vert=vert,
                              patch_artist=True,
                              positions=[i],
-                             widths=width___boxplot,
-                             **kwargs___boxplot)
+                             widths=width,
+                             **kwargs)
     color = rgb_colors[i]
     """Take a drawn matplotlib boxplot and make it look nice."""
     for box in artist_dict["boxes"]:
         box.update(dict(facecolor=color,
                         zorder=.9,
                         edgecolor=gray,
-                        linewidth=linewidth___boxplot))
+                        linewidth=linewidth))
         box.update(props["box"])
     for whisk in artist_dict["whiskers"]:
         whisk.update(dict(color=gray,
-                          linewidth=linewidth___boxplot,
+                          linewidth=linewidth,
                           linestyle="-"))
         whisk.update(props["whisker"])
     for cap in artist_dict["caps"]:
         cap.update(dict(color=gray,
-                        linewidth=linewidth___boxplot))
+                        linewidth=linewidth))
         cap.update(props["cap"])
     for med in artist_dict["medians"]:
         med.update(dict(color=gray,
-                        linewidth=linewidth___boxplot))
+                        linewidth=linewidth))
         med.update(props["median"])
     for fly in artist_dict["fliers"]:
         fly.update(dict(markerfacecolor=gray,
                         marker="d",
                         markeredgecolor=gray,
-                        markersize=fliersize___boxplot))
+                        markersize=fliersize))
         fly.update(props["flier"])
 """Add descriptive labels to an Axes object."""
 xlabel, ylabel = group_label, value_label
 
-ax___boxplot.set_xlabel(xlabel)
-ax___boxplot.set_ylabel(ylabel)
+ax.set_xlabel(xlabel)
+ax.set_ylabel(ylabel)
 
-ax___boxplot.set_xticks(np.arange(len(plot_data)))
-ax___boxplot.set_xticklabels(group_names)
+ax.set_xticks(np.arange(len(plot_data)))
+ax.set_xticklabels(group_names)
 
-ax___boxplot.xaxis.grid(False)
-ax___boxplot.set_xlim(-.5, len(plot_data) - .5, auto=None)'''
+ax.xaxis.grid(False)
+ax.set_xlim(-.5, len(plot_data) - .5, auto=None)'''
 
     run_optimize_harness(prog, seaborn.categorical, outp, locals())

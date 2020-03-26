@@ -5,7 +5,8 @@ import libcst as cst
 from .common import EvalException, a2s, get_function_locals, parse_module
 from .contexts import ctx_inliner, ctx_pass
 from .passes import (PASSES, CleanImportsPass, CopyPropagationPass,
-                     DeadCodePass, InlinePass, RecordToVarsPass, UnusedVarsPass)
+                     DeadCodePass, InlinePass, RecordToVarsPass,
+                     RemoveSuffixesPass, UnusedVarsPass)
 from .targets import make_target
 
 
@@ -67,7 +68,8 @@ class Inliner:
                 any_change |= self.run_pass(Pass)
             return any_change
 
-        return self.fixpoint(run_passes)
+        any_change = self.fixpoint(run_passes)
+        return any_change | self.run_pass(RemoveSuffixesPass)
 
     def fixpoint(self, f, *args, **kwargs):
         any_change = False
