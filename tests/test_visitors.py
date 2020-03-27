@@ -20,6 +20,7 @@ def test_trim_whitespace():
 
         """multi
         line"""
+        """"""
 
     # yapf: disable
     def outp():
@@ -34,5 +35,6 @@ def test_trim_whitespace():
             pass
 
         """multi"""
+        """"""
 
     run_visitor_harness(inp, outp, TrimWhitespace())

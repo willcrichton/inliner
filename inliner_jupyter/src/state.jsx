@@ -75,7 +75,8 @@ print(json.dumps(${this.name}.code_folding()))`);
   async sync_targets(targets) {
     let names = targets.map((t) => t.name);
     var save = `
-${this.name}.targets = []
+for target in ${this.name}.targets:
+  ${this.name}.remove_target(target)
 for target in json.loads('${JSON.stringify(names)}'):
     ${this.name}.add_target(target)`;
 

@@ -64,6 +64,7 @@ def test_interactive_debug():
 
     debug_str = """
 from inliner import Inliner
+from inliner.targets import CursorTarget
 
 def f():
     assert json.dumps({}) == '{}'

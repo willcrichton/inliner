@@ -25,8 +25,13 @@ class TrimWhitespace(cst.CSTTransformer):
             s = updated_node.value.value
             if s.startswith('"""'):
                 lines = s[3:-3].splitlines()
+                final = ''
+                for line in lines:
+                    if line.strip() != '':
+                        final = line
+                        break
                 return updated_node.with_changes(
-                    value=cst.SimpleString(f'"""{lines[0]}"""'))
+                    value=cst.SimpleString(f'"""{final}"""'))
         return updated_node
 
     def on_leave(self, original_node, updated_node):

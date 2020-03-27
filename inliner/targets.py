@@ -28,7 +28,7 @@ class ModuleTarget(InlineTarget):
     e.g. if target = a.b, then objs defined in a.b or a.b.c will be inlined
     """
     def to_string(self):
-        return self.target.__name__
+        return f'"{self.target.__name__}"'
 
     def should_inline(self, code, obj):
         # Check if object is defined in the same module or a submodule
@@ -44,7 +44,7 @@ class FunctionTarget(InlineTarget):
     Inline exactly this function
     """
     def to_string(self):
-        return f'{self.target.__module__}.{self.target.__qualname__}'
+        return f'"{self.target.__module__}.{self.target.__qualname__}"'
 
     def should_inline(self, code, obj):
         if inspect.ismethod(obj):
@@ -59,7 +59,7 @@ class FunctionTarget(InlineTarget):
 
 class CursorTarget(InlineTarget):
     def to_string(self):
-        pass
+        return f'CursorTarget({self.target})'
 
     def should_inline(self, code, obj):
         pass_ = ctx_pass.get()
@@ -80,7 +80,7 @@ class ClassTarget(InlineTarget):
     Inline this class and all of its methods
     """
     def to_string(self):
-        return f'{self.target.__module__}.{self.target.__qualname__}'
+        return f'"{self.target.__module__}.{self.target.__qualname__}"'
 
     def should_inline(self, code, obj):
         pass_ = ctx_pass.get()

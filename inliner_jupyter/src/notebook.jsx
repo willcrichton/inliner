@@ -62,7 +62,7 @@ class NotebookEnv extends Env {
         set_cell_text: (text) => new_cell.set_text(text),
         fold_lines: (lines) => {
           lines.forEach((line) =>
-            new_cell.code_mirror.foldCode(CodeMirror.Pos(line, 0)));
+            new_cell.code_mirror.foldCode(CodeMirror.Pos(line - 1, 0)));
         }
       }
     };

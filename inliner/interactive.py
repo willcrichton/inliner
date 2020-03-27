@@ -110,7 +110,7 @@ class AddTargetHistory(NamedTuple, HistoryEntry):
     target: InlineTarget
 
     def to_code(self, name):
-        return f'{name}.add_target("{self.target.to_string()}")'
+        return f'{name}.add_target({self.target.to_string()})'
 
     def undo(self, inliner):
         inliner.remove_target(self.target)
@@ -131,10 +131,12 @@ class InteractiveInliner(Inliner):
         if isinstance(Pass, str):
             Pass = self._name_to_pass(Pass)
         ret = super().run_pass(Pass, **kwargs)
-        self.history.append(RunPassHistory(prev_module=prev_module, pass_=Pass))
-        self.targets = [
-            t for t in self.targets if not isinstance(t, CursorTarget)
-        ]
+        if ret:
+            self.history.append(
+                RunPassHistory(prev_module=prev_module, pass_=Pass))
+            self.targets = [
+                t for t in self.targets if not isinstance(t, CursorTarget)
+            ]
         return ret
 
     def target_suggestions(self):
@@ -153,6 +155,8 @@ class InteractiveInliner(Inliner):
         return sorted(finder.unexecuted)
 
     def undo(self):
+        while (not isinstance(self.history[-1], RunPassHistory)):
+            self.history.pop().undo(self)
         self.history.pop().undo(self)
 
     def debug(self):
@@ -163,6 +167,7 @@ class InteractiveInliner(Inliner):
 
             return f'''
 from inliner import Inliner
+from inliner.targets import CursorTarget
 
 def f():
 {f_body}

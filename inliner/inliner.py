@@ -51,6 +51,9 @@ class Inliner:
         self.targets.append(target)
         return target
 
+    def remove_target(self, target):
+        self.targets.remove(target)
+
     def optimize(self, passes=None):
         if passes is None:
             passes = [
