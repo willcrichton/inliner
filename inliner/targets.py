@@ -4,6 +4,7 @@ import inspect
 import libcst as cst
 from libcst.metadata import PositionProvider
 
+from .common import EvalException
 from .contexts import ctx_pass
 
 
@@ -94,8 +95,8 @@ class ClassTarget(InlineTarget):
         # e.g. f = Target(); f.foo()
         if inspect.ismethod(obj):
             bound_obj = obj.__self__
-            bound_cls = bound_obj if inspect.isclass(
-                bound_obj) else bound_obj.__class__
+            bound_cls = (bound_obj
+                         if inspect.isclass(bound_obj) else bound_obj.__class__)
             bound_method = issubclass(self.target, bound_cls)
         else:
             bound_method = False
@@ -106,19 +107,16 @@ class ClassTarget(InlineTarget):
             if isinstance(code, cst.Attribute):
                 try:
                     cls = pass_.eval(code.value)
-
-                    if isinstance(cls, self.target):
-                        unbound_method = True
-                    else:
-                        unbound_method = issubclass(self.target, cls)
-                except Exception:
+                    unbound_method = (isinstance(cls, self.target)
+                                      or issubclass(self.target, cls))
+                except EvalException:
                     unbound_method = False
             else:
                 qname = obj.__qualname__.split('.')
                 try:
                     attr = pass_.eval('.'.join(qname[:-1]))
                     unbound_method = issubclass(self.target, attr)
-                except Exception:
+                except EvalException:
                     unbound_method = False
         else:
             unbound_method = False

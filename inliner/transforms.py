@@ -6,14 +6,15 @@ import typing
 
 import libcst as cst
 import libcst.matchers as m
+from libcst.metadata import ExpressionContext
 
 from .common import (SEP, a2s, get_function_locals, make_assign, make_dict,
                      make_index, make_list, make_string, parse_expr,
                      parse_statement)
 from .contexts import ctx_inliner, ctx_pass
-from .visitors import (FindUsedNames, RemoveFunctoolsWraps, ReplaceReturn,
-                       ReplaceSuper, ReplaceYield, ScopeProviderFunction,
-                       collect_imports, rename)
+from .visitors import (RemoveFunctoolsWraps, ReplaceReturn, ReplaceSuper,
+                       ReplaceYield, ScopeProviderFunction,
+                       ExpressionContextProviderBlock, collect_imports, rename)
 
 
 def rename_in_function(f_ast, src, dst):
@@ -185,15 +186,20 @@ def replace_super(f_ast, cls, call, func_obj, new_stmts):
 
 
 def generate_imports_for_nonlocals(f_ast, func_obj, call):
-    used_names = FindUsedNames()
-    cst.MetadataWrapper(f_ast.body).visit(used_names)
+    # Get all read-position variables
+    contexts = cst.MetadataWrapper(
+        f_ast.body,
+        unsafe_skip_copy=True).resolve(ExpressionContextProviderBlock)
+    used_names = set(
+        node.value for node, ctx in contexts.items()
+        if ctx == ExpressionContext.LOAD and m.matches(node, m.Name()))
 
     closure = {**func_obj.__globals__, **get_function_locals(func_obj)}
     file_imports = collect_imports(func_obj)
 
     imports = [
         generate_import(name, closure[name], func_obj, file_imports)
-        for name in used_names.names if name in closure
+        for name in used_names if name in closure
     ]
     imports = [i for i in imports if i]
 

@@ -26,6 +26,7 @@ class IsPureVisitor(cst.CSTVisitor):
         cst.DictElement,
         cst.SubscriptElement,
         # Whitespace/syntax
+        cst.SimpleWhitespace,
         cst.BaseParenthesizableWhitespace,
         cst.LeftCurlyBrace,
         cst.RightCurlyBrace,
@@ -33,7 +34,8 @@ class IsPureVisitor(cst.CSTVisitor):
         cst.RightSquareBracket,
         cst.LeftParen,
         cst.RightParen,
-        cst.Dot)
+        cst.Dot,
+        cst.Comma)
 
     def __init__(self):
         self.pure = True
