@@ -11,10 +11,9 @@ from .common import (SEP, a2s, get_function_locals, make_assign, make_dict,
                      make_index, make_list, make_string, parse_expr,
                      parse_statement)
 from .contexts import ctx_inliner, ctx_pass
-from .visitors import (FindAssignments, FindClosedVariables, FindUsedNames,
-                       RemoveFunctoolsWraps, ReplaceReturn, ReplaceSuper,
-                       ReplaceYield, collect_imports, rename, bulk_rename,
-                       ScopeProviderFunction)
+from .visitors import (FindUsedNames, RemoveFunctoolsWraps, ReplaceReturn,
+                       ReplaceSuper, ReplaceYield, ScopeProviderFunction,
+                       collect_imports, rename)
 
 
 def rename_in_function(f_ast, src, dst):
@@ -33,7 +32,6 @@ def bind_arguments(f_ast, call_expr, new_stmts):
     pass_ = ctx_pass.get()
 
     args_def = f_ast.params
-    arg_names = set([arg_def.name.value for arg_def in args_def.params])
 
     def bind_new_argument(k, v):
         nonlocal f_ast
