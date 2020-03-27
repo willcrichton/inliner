@@ -12,9 +12,9 @@ from .common import (SEP, a2s, get_function_locals, make_assign, make_dict,
                      make_index, make_list, make_string, parse_expr,
                      parse_statement)
 from .contexts import ctx_inliner, ctx_pass
-from .visitors import (RemoveFunctoolsWraps, ReplaceReturn, ReplaceSuper,
-                       ReplaceYield, ScopeProviderFunction,
-                       ExpressionContextProviderBlock, collect_imports, rename)
+from .visitors import (ExpressionContextProviderBlock, RemoveFunctoolsWraps,
+                       ReplaceReturn, ReplaceSuper, ReplaceYield,
+                       ScopeProviderFunction, collect_imports, rename)
 
 
 def rename_in_function(f_ast, src, dst):
