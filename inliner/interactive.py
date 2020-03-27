@@ -3,9 +3,9 @@ import textwrap
 from typing import NamedTuple
 
 import libcst as cst
-from libcst.metadata import PositionProvider
+from libcst.metadata import PositionProvider, ScopeProvider
 
-from .common import EvalException, ScopeProvider, a2s
+from .common import EvalException, a2s
 from .contexts import ctx_inliner
 from .inliner import Inliner
 from .passes.base_pass import BasePass

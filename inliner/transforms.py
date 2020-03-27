@@ -11,9 +11,22 @@ from .common import (SEP, a2s, get_function_locals, make_assign, make_dict,
                      make_index, make_list, make_string, parse_expr,
                      parse_statement)
 from .contexts import ctx_inliner, ctx_pass
-from .visitors import (FindAssignments, FindClosedVariables,
-                       RemoveFunctoolsWraps, Rename, ReplaceReturn,
-                       ReplaceSuper, ReplaceYield, UsedNames, collect_imports)
+from .visitors import (FindAssignments, FindClosedVariables, FindUsedNames,
+                       RemoveFunctoolsWraps, ReplaceReturn, ReplaceSuper,
+                       ReplaceYield, collect_imports, rename, bulk_rename,
+                       ScopeProviderFunction)
+
+
+def rename_in_function(f_ast, src, dst):
+    mod = cst.Module(body=f_ast.body.body)
+    return f_ast.with_deep_changes(f_ast.body, body=rename(mod, src, dst).body)
+
+
+# Scope a variable name as unique to the function, and update any
+# references to it in the function
+def unique_and_rename(f_ast, name):
+    unique_name = f'{name}{SEP}{f_ast.name.value}'
+    return rename_in_function(f_ast, name, unique_name), unique_name
 
 
 def bind_arguments(f_ast, call_expr, new_stmts):
@@ -22,44 +35,12 @@ def bind_arguments(f_ast, call_expr, new_stmts):
     args_def = f_ast.params
     arg_names = set([arg_def.name.value for arg_def in args_def.params])
 
-    assgn_finder = FindAssignments()
-    f_ast.visit(assgn_finder)
-
-    closed_var_finder = FindClosedVariables()
-    f_ast.body.visit(closed_var_finder)
-
-    def rename(src, dst):
-        nonlocal f_ast
-        f_ast = cst.MetadataWrapper(f_ast, unsafe_skip_copy=True).visit(
-            Rename(src, dst))
-
-    # Scope a variable name as unique to the function, and update any references
-    # to it in the function
-    def unique_and_rename(name):
-        unique_name = f'{name}{SEP}{f_ast.name.value}'
-        rename(name, unique_name)
-        return unique_name
-
     def bind_new_argument(k, v):
         nonlocal f_ast
-        # special case: if doing a name copy, e.g. f(x=y), then directly
-        # substitute [x -> y] in the inlined function body. Only do this
-        # if substitution is legal (x is not assigned or closed).
-        # TODO: generalize the != None case
-        if isinstance(v, cst.Name) and v.value != 'None' and \
-           k not in assgn_finder.names and \
-           k not in closed_var_finder.vars:
-            rename(k, v.value)
-        else:
-            # Add a binding from function argument to call argument
-            uniq_k = unique_and_rename(k)
-            stmt = make_assign(cst.Name(uniq_k), v)
-            new_stmts.append(stmt)
-
-    # Rename all variables declared in the function that aren't arguments
-    for name in assgn_finder.names:
-        if name not in arg_names:
-            unique_and_rename(name)
+        # Add a binding from function argument to call argument
+        f_ast, uniq_k = unique_and_rename(f_ast, k)
+        stmt = make_assign(cst.Name(uniq_k), v)
+        new_stmts.append(stmt)
 
     # If function is called with f(*args)
     star_arg = next(filter(lambda arg: arg.star == '*', call_expr.args), None)
@@ -162,7 +143,7 @@ def bind_arguments(f_ast, call_expr, new_stmts):
     # arguments from the call_expr
     if (args_def.star_arg is not cst.MaybeSentinel.DEFAULT
             and not isinstance(args_def.star_arg, cst.ParamStar)):
-        k = unique_and_rename(args_def.star_arg.name.value)
+        f_ast, k = unique_and_rename(f_ast, args_def.star_arg.name.value)
         v = call_anon_args[:]
         if star_arg is not None:
             v += call_star_args
@@ -170,7 +151,7 @@ def bind_arguments(f_ast, call_expr, new_stmts):
 
     # Similarly for **kwargs in the function definition
     if args_def.star_kwarg is not None:
-        k = unique_and_rename(args_def.star_kwarg.name.value)
+        f_ast, k = unique_and_rename(f_ast, args_def.star_kwarg.name.value)
         items = call_kwargs.items()
         if star_kwarg is not None:
             items = itertools.chain(items, call_star_kwarg.items())
@@ -187,6 +168,7 @@ def replace_super(f_ast, cls, call, func_obj, new_stmts):
     # If we don't know what the class is, e.g. in Foo.method(foo), then
     # eval the LHS of the attribute, e.g. Foo here
     if cls is None:
+
         if m.matches(call.func, m.Attribute()):
             cls = pass_.eval(call.func.value)
         else:
@@ -205,7 +187,7 @@ def replace_super(f_ast, cls, call, func_obj, new_stmts):
 
 
 def generate_imports_for_nonlocals(f_ast, func_obj, call):
-    used_names = UsedNames()
+    used_names = FindUsedNames()
     cst.MetadataWrapper(f_ast.body).visit(used_names)
 
     closure = {**func_obj.__globals__, **get_function_locals(func_obj)}
@@ -321,6 +303,15 @@ def inline_function(func_obj,
     # Add bindings from arguments in the call expression to arguments in function def
     f_ast = bind_arguments(f_ast, call, new_stmts)
 
+    scopes = cst.MetadataWrapper(
+        f_ast, unsafe_skip_copy=True).resolve(ScopeProviderFunction)
+    func_scope = scopes[f_ast.body]
+
+    for assgn in func_scope.assignments:
+        if m.matches(assgn.node, m.Name()):
+            var = assgn.node.value
+            f_ast = unique_and_rename(f_ast, var)
+
     # Add an explicit return None at the end to reify implicit return
     f_body = f_ast.body
     last_stmt_is_return = m.matches(f_body.body[-1],
@@ -378,15 +369,18 @@ def inline_constructor(func_obj, call, ret_var):
       self.x = 1
     """
     cls_name = func_obj.__name__
+    new_stmts = []
 
     # # Add an import for the class
-    # cls_module = inspect.getmodule(func_obj).__name__
-    # imprt = cst.parse_statement(f'from {cls_module} import {cls_name}')
+    cls_import = generate_import(cls_name, func_obj)
+    if cls_import is not None:
+        new_stmts.append(cls_import)
 
     # Create a raw object using __new__
     make_obj = make_assign(
         cst.Name(ret_var),
         cst.parse_expression(f'{cls_name}.__new__({cls_name})'))
+    new_stmts.append(make_obj)
 
     # Add the object as an explicit argument to the __init__ function
     call = call.with_changes(args=[cst.Arg(cst.Name(ret_var))] +
@@ -401,7 +395,7 @@ def inline_constructor(func_obj, call, ret_var):
     else:
         init_inline = []
 
-    return [make_obj] + init_inline
+    return new_stmts + init_inline
 
 
 def inline_method(func_obj, call, ret_var):
@@ -417,6 +411,7 @@ def inline_method(func_obj, call, ret_var):
       f = Foo()
       assert Foo.bar(f, 0) == 1
     """
+    pass_ = ctx_pass.get()
 
     # HACK: assume all methods are called syntactically as obj.method()
     # as opposed to x = obj.method; x()
@@ -429,18 +424,30 @@ def inline_method(func_obj, call, ret_var):
 
     # If the method is a classmethod, the method is bound to the class
     if inspect.isclass(bound_obj):
-        new_func = f'{bound_obj.__name__}.{method_name}.__func__'
+        cls_name = bound_obj.__name__
+        cls_obj = bound_obj
+        new_func = f'{cls_name}.{method_name}.__func__'
     else:
-        new_func = f'{bound_obj.__class__.__name__}.{method_name}'
+        cls_name = bound_obj.__class__.__name__
+        cls_obj = bound_obj.__class__
+        new_func = f'{cls_name}.{method_name}'
 
     new_func = parse_expr(new_func)
+
+    new_stmts = []
+    cls_import = generate_import(cls_name, cls_obj)
+    if cls_import is not None:
+        new_stmts.append(cls_import)
+        exec(a2s(cls_import), pass_.globls, pass_.globls)
 
     # Add the object as explicit self parameter
     new_call = call.with_changes(func=new_func,
                                  args=[cst.Arg(call.func.value)] +
                                  list(call.args))
 
-    return inline_function(func_obj.__func__, new_call, ret_var)
+    # Go back to general inline dispatcher since e.g. function may
+    # be a generator method, so we can't directly call inline_function
+    return new_stmts + inline(func_obj.__func__, new_call, ret_var)
 
 
 def inline_generator(func_obj, call, ret_var):
@@ -480,7 +487,7 @@ def inline_generator(func_obj, call, ret_var):
     return new_stmts
 
 
-def generate_import(name, obj, func_obj, file_imports):
+def generate_import(name, obj, func_obj=None, file_imports=None):
     """
     Generate an import statement for a (name, runtime object) pair.
     """
@@ -498,7 +505,7 @@ def generate_import(name, obj, func_obj, file_imports):
 
     # If the name appears directly in an import statement in the object's file,
     # then use that import
-    if name in file_imports:
+    if file_imports is not None and name in file_imports:
         return cst.SimpleStatementLine([file_imports[name]])
 
     # If we're importing a module, then add an import directly
@@ -527,3 +534,16 @@ def generate_import(name, obj, func_obj, file_imports):
         elif func_obj is not None:
             func_mod_name = inspect.getmodule(func_obj).__name__
             return parse_statement(f'from {func_mod_name} import {name}')
+
+
+def inline(func_obj, call, ret_var):
+    if inspect.ismethod(func_obj):
+        return inline_method(func_obj, call, ret_var)
+    elif inspect.isgeneratorfunction(func_obj):
+        return inline_generator(func_obj, call, ret_var)
+    elif inspect.isclass(func_obj):
+        return inline_constructor(func_obj, call, ret_var)
+    elif inspect.isfunction(func_obj):
+        return inline_function(func_obj, call, ret_var)
+    else:
+        raise NotImplementedError

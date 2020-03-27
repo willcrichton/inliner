@@ -92,8 +92,13 @@ class ClassTarget(InlineTarget):
             constructor = False
 
         # e.g. f = Target(); f.foo()
-        bound_method = inspect.ismethod(obj) and issubclass(
-            self.target, obj.__self__.__class__)
+        if inspect.ismethod(obj):
+            bound_obj = obj.__self__
+            bound_cls = bound_obj if inspect.isclass(
+                bound_obj) else bound_obj.__class__
+            bound_method = issubclass(self.target, bound_cls)
+        else:
+            bound_method = False
 
         # e.g. f = Target(); Target.foo(f)
         # https://stackoverflow.com/questions/3589311/get-defining-class-of-unbound-method-object-in-python-3

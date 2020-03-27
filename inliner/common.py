@@ -2,29 +2,10 @@ import re
 import textwrap
 
 import libcst as cst
-from libcst.metadata import ExpressionContext
-from libcst.metadata import \
-    ExpressionContextProvider as _ExpressionContextProvider
-from libcst.metadata import ScopeProvider as _ScopeProvider
-from libcst.metadata.expression_context_provider import \
-    ExpressionContextVisitor
-from libcst.metadata.scope_provider import ScopeVisitor
 
 from .contexts import ctx_inliner
 
 SEP = "___"
-
-
-class ExpressionContextProvider(_ExpressionContextProvider):
-    def visit_IndentedBlock(self, node: cst.IndentedBlock) -> None:
-        node.visit(ExpressionContextVisitor(self, ExpressionContext.LOAD))
-
-
-class ScopeProvider(_ScopeProvider):
-    def visit_FunctionDef(self, node):
-        visitor = ScopeVisitor(self)
-        node.visit(visitor)
-        visitor.infer_accesses()
 
 
 class EvalException(Exception):

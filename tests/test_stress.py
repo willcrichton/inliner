@@ -77,8 +77,9 @@ orient = None
 # Validate the inputs
 
         # Figure out the plotting orientation
+orient_2 = orient
 """Determine how the plot should be oriented based on the data."""
-orient = str(orient)
+orient_2 = str(orient_2)
 
 infer_orient_ret = "v"
 

@@ -12,20 +12,6 @@ from ..tracer import TracerArgs
 class InlinePass(BasePass):
     tracer_args = TracerArgs()
 
-    def _inline(self, ret_var, call, func_obj):
-        if inspect.isgeneratorfunction(func_obj):
-            new_stmts = transforms.inline_generator(func_obj, call, ret_var)
-        elif inspect.isfunction(func_obj):
-            new_stmts = transforms.inline_function(func_obj, call, ret_var)
-        elif inspect.isclass(func_obj):
-            new_stmts = transforms.inline_constructor(func_obj, call, ret_var)
-        elif inspect.ismethod(func_obj):
-            new_stmts = transforms.inline_method(func_obj, call, ret_var)
-        else:
-            raise NotImplementedError
-
-        self.insert_statements_before_current(new_stmts)
-
     def _func_name(self, func):
         if m.matches(func, m.Name()):
             return func.value
@@ -66,7 +52,8 @@ class InlinePass(BasePass):
             func_name = self._func_name(func)
             ret_var = self.fresh_var(f'{func_name}_ret')
 
-            self._inline(ret_var, call, func_obj)
+            new_stmts = transforms.inline(func_obj, call, ret_var)
+            self.insert_statements_before_current(new_stmts)
 
             return cst.Name(ret_var)
 
@@ -114,7 +101,8 @@ class InlinePass(BasePass):
 
             ret_var = self.fresh_var(attr.attr.value)
 
-            self._inline(ret_var, call, func_obj)
+            self.insert_statements_before_current(
+                transforms.inline(func_obj, call, ret_var))
 
             return cst.Name(ret_var)
 
@@ -147,7 +135,8 @@ class InlinePass(BasePass):
 
                 ret_var = self.fresh_var(target.attr.value)
 
-                self._inline(ret_var, call, func_obj)
+                self.insert_statements_before_current(
+                    transforms.inline(func_obj, call, ret_var))
 
                 return cst.RemovalSentinel.REMOVE
 

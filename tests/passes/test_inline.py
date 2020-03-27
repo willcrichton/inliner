@@ -11,12 +11,11 @@ def test_inline_basic():
     def prog():
         assert target(1) == 2
 
-    outp = """
-x___target = 1
-if "target_ret" not in globals():
-    target_ret = x___target + 1
-assert target_ret == 2
-"""
+    def outp():
+        x___target = 1
+        if "target_ret" not in globals():
+            target_ret = x___target + 1
+        assert target_ret == 2
 
     run_inline_harness(prog, target, outp, locals())
 
@@ -33,23 +32,22 @@ def test_inline_args():
     def prog():
         target(1, b=2, c=2, f=4)
 
-    outp = """
-a___target = 1
-b___target = 2
-c___target = 2
-d___target = 2
-args___target = []
-kwargs___target = {"f": 4}
-assert (a___target == 1)
-assert (b___target == 2)
-assert (c___target == 2)
-assert (d___target == 2)
-assert (len(args___target) == 0)
-assert (kwargs___target["f"] == 4)
-if "target_ret" not in globals():
-    target_ret = None
-target_ret
-"""
+    def outp():
+        a___target = 1
+        b___target = 2
+        c___target = 2
+        d___target = 2
+        args___target = []
+        kwargs___target = {"f": 4}
+        assert (a___target == 1)
+        assert (b___target == 2)
+        assert (c___target == 2)
+        assert (d___target == 2)
+        assert (len(args___target) == 0)
+        assert (kwargs___target["f"] == 4)
+        if "target_ret" not in globals():
+            target_ret = None
+        target_ret
 
     run_inline_harness(prog, target, outp, locals())
 
@@ -61,14 +59,14 @@ def test_inline_nested():
     def prog():
         assert target(target(1)) == 3
 
-    outp = """
-x___target = 1
-if "target_ret" not in globals():
-    target_ret = x___target + 1
-if "target_ret_2" not in globals():
-    target_ret_2 = target_ret + 1
-assert target_ret_2 == 3
-"""
+    def outp():
+        x___target = 1
+        if "target_ret" not in globals():
+            target_ret = x___target + 1
+        x___target_2 = target_ret
+        if "target_ret_2" not in globals():
+            target_ret_2 = x___target_2 + 1
+        assert target_ret_2 == 3
 
     run_inline_harness(prog, target, outp, locals())
 
@@ -85,19 +83,18 @@ def test_inline_return():
     def prog():
         assert target() == 1
 
-    outp = """
-if True:
-  x = 1
-  if "target_ret" not in globals():
-    target_ret = x
-  if "target_ret" not in globals():
-    assert False
-if "target_ret" not in globals():
-  assert False
-  if "target_ret" not in globals():
-    target_ret = 3
-assert target_ret == 1
-"""
+    def outp():
+        if True:
+            x = 1
+            if "target_ret" not in globals():
+                target_ret = x
+            if "target_ret" not in globals():
+                assert False
+        if "target_ret" not in globals():
+            assert False
+            if "target_ret" not in globals():
+                target_ret = 3
+        assert target_ret == 1
 
     run_inline_harness(prog, target, outp, locals())
 
@@ -111,13 +108,13 @@ def test_inline_class_constructor():
         t = Test(1)
         assert t.x == 1
 
-    outp = """
-Test_ret = Test.__new__(Test)
-x_____init__ = 1
-Test_ret.x = x_____init__
-t = Test_ret
-assert t.x == 1
-"""
+    def outp():
+        Test_ret = Test.__new__(Test)
+        self_____init__ = Test_ret
+        x_____init__ = 1
+        self_____init__.x = x_____init__
+        t = Test_ret
+        assert t.x == 1
 
     run_inline_harness(prog, Test, outp, locals())
 
@@ -134,15 +131,16 @@ def test_inline_class_method():
         t = Test()
         assert t.foo(1) == 2
 
-    outp = """
-Test_ret = Test.__new__(Test)
-Test_ret.x = 1
-t = Test_ret
-x___foo = 1
-if "foo_ret" not in globals():
-    foo_ret = x___foo + t.x
-assert foo_ret == 2
-"""
+    def outp():
+        Test_ret = Test.__new__(Test)
+        self_____init__ = Test_ret
+        self_____init__.x = 1
+        t = Test_ret
+        self___foo = t
+        x___foo = 1
+        if "foo_ret" not in globals():
+            foo_ret = x___foo + self___foo.x
+        assert foo_ret == 2
 
     run_inline_harness(prog, Test, outp, locals())
 
@@ -161,15 +159,41 @@ def test_inline_class_super():
         b = B()
         assert b.x + b.y == 2
 
-    outp = """
-B_ret = B.__new__(B)
-A.__init__(B_ret)
-B_ret.y = 1
-b = B_ret
-assert b.x + b.y == 2
-"""
+    def outp():
+        B_ret = B.__new__(B)
+        self_____init__ = B_ret
+        A.__init__(self_____init__)
+        self_____init__.y = 1
+        b = B_ret
+        assert b.x + b.y == 2
 
     run_inline_harness(prog, B, outp, locals())
+
+
+def test_inline_class_staticmethod():
+    class Cls:
+        @staticmethod
+        def foo(x):
+            return x + 1
+
+        @classmethod
+        def bar(cls, x):
+            return cls.foo(x) + x
+
+    def prog():
+        assert Cls.bar(1) == 3
+
+    def outp():
+        cls___bar = Cls
+        x___bar = 1
+        if "bar_ret" not in globals():
+            x___foo = x___bar
+            if "foo_ret" not in globals():
+                foo_ret = x___foo + 1
+            bar_ret = foo_ret + x___bar
+        assert bar_ret == 3
+
+    run_inline_harness(prog, Cls, outp, locals(), fixpoint=True)
 
 
 def test_inline_generator():
@@ -181,17 +205,42 @@ def test_inline_generator():
         for i, j in zip(gen(), range(10)):
             assert i == j
 
-    outp = """
-gen_ret = []
-for i in range(10):
-    gen_ret.append(i)
-if "gen_ret" not in globals():
-    gen_ret = None
-for i, j in zip(gen_ret, range(10)):
-    assert i == j
-"""
+    def outp():
+        gen_ret = []
+        for i in range(10):
+            gen_ret.append(i)
+        if "gen_ret" not in globals():
+            gen_ret = None
+        for i, j in zip(gen_ret, range(10)):
+            assert i == j
 
     run_inline_harness(prog, gen, outp, locals())
+
+
+def test_inline_generator_method():
+    class Cls:
+        def gen(self):
+            for i in range(10):
+                yield i
+
+    def prog():
+        c = Cls()
+        for i, j in zip(c.gen(), range(10)):
+            assert i == j
+
+    def outp():
+        Cls_ret = Cls.__new__(Cls)
+        c = Cls_ret
+        gen_ret = []
+        self___gen = c
+        for i in range(10):
+            gen_ret.append(i)
+        if "gen_ret" not in globals():
+            gen_ret = None
+        for i, j in zip(gen_ret, range(10)):
+            assert i == j
+
+    run_inline_harness(prog, Cls, outp, locals())
 
 
 def test_inline_import():
@@ -200,13 +249,12 @@ def test_inline_import():
     def prog():
         api.use_json()
 
-    outp = """
-import json
-assert json.dumps({}) == '{}'
-if "use_json_ret" not in globals():
-    use_json_ret = None
-use_json_ret
-"""
+    def outp():
+        import json
+        assert json.dumps({}) == '{}'
+        if "use_json_ret" not in globals():
+            use_json_ret = None
+        use_json_ret
 
     run_inline_harness(prog, api, outp, locals())
 
@@ -217,12 +265,11 @@ def test_inline_import_same_file():
     def prog():
         assert nested_reference() == 1
 
-    outp = """
-from api import f
-if "nested_reference_ret" not in globals():
-    nested_reference_ret = f()
-assert nested_reference_ret == 1
-"""
+    def outp():
+        from api import f
+        if "nested_reference_ret" not in globals():
+            nested_reference_ret = f()
+        assert nested_reference_ret == 1
 
     run_inline_harness(prog, nested_reference, outp, locals())
 
@@ -246,20 +293,24 @@ def test_inline_property():
         t.bar = 2
         assert t.bar == 2
 
-    outp = """
-Target_ret = Target.__new__(Target)
-Target_ret.foo = 1
-t = Target_ret
-if "bar" not in globals():
-    bar = t.foo
-assert bar == 1
-foo___bar_4 = 2
-t.foo = foo___bar_4
-if "bar_3" not in globals():
-    bar_3 = None
-if "bar_5" not in globals():
-    bar_5 = t.foo
-assert bar_5 == 2"""
+    def outp():
+        Target_ret = Target.__new__(Target)
+        self_____init__ = Target_ret
+        self_____init__.foo = 1
+        t = Target_ret
+        self___bar_2 = t
+        if "bar" not in globals():
+            bar = self___bar_2.foo
+        assert bar == 1
+        self___bar_4 = t
+        foo___bar_4 = 2
+        self___bar_4.foo = foo___bar_4
+        if "bar_3" not in globals():
+            bar_3 = None
+        self___bar_6 = t
+        if "bar_5" not in globals():
+            bar_5 = self___bar_6.foo
+        assert bar_5 == 2
 
     run_inline_harness(prog, Target, outp, locals())
 
@@ -279,24 +330,25 @@ def test_inline_decorator():
     def prog():
         assert function_decorator(1) == 4
 
-    outp = """
-def function_decorator(x):
-    return x + 1
-f___dec_test = function_decorator
-def newf(*args, **kwargs):
-    return f___dec_test(*args, **kwargs) + 2
+    # yapf: disable
+    def outp():
+        def function_decorator(x):
+            return x + 1
+        f___dec_test = function_decorator
+        def newf(*args, **kwargs):
+            return f___dec_test(*args, **kwargs) + 2
 
-if "dec_test_ret" not in globals():
-    dec_test_ret = newf
-args___newf = [1]
-kwargs___newf = {}
-if "dec_test_ret_ret" not in globals():
-    x___function_decorator = args___newf[0]
-    if "f___dec_test_ret" not in globals():
-        f___dec_test_ret = x___function_decorator + 1
-    dec_test_ret_ret = f___dec_test_ret + 2
-function_decorator_ret = dec_test_ret_ret
-assert function_decorator_ret == 4"""
+        if "dec_test_ret" not in globals():
+            dec_test_ret = newf
+        args___newf = [1]
+        kwargs___newf = {}
+        if "dec_test_ret_ret" not in globals():
+            x___function_decorator = args___newf[0]
+            if "f___dec_test_ret" not in globals():
+                f___dec_test_ret = x___function_decorator + 1
+            dec_test_ret_ret = f___dec_test_ret + 2
+        function_decorator_ret = dec_test_ret_ret
+        assert function_decorator_ret == 4
 
     run_inline_harness(prog, [function_decorator, dec_test],
                        outp,
@@ -304,7 +356,7 @@ assert function_decorator_ret == 4"""
                        fixpoint=True)
 
 
-def test_inline_comprehension():
+def test_inline_comprehension_noop():
     def target(x):
         return x + 1
 
@@ -314,10 +366,9 @@ def test_inline_comprehension():
 
     # target SHOULD NOT be inlined, since that would be unsafe
     # before comprehension is expanded
-    outp = """
-l = [target(i) for i in range(3)]
-assert sum(l) == 6
-"""
+    def outp():
+        l = [target(i) for i in range(3)]
+        assert sum(l) == 6
 
     run_inline_harness(prog, target, outp, locals())
 

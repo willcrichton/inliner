@@ -11,11 +11,7 @@ def func_to_module(f):
     return cst.Module(body=func.body.body)
 
 
-def run_visitor_harness(inp, outp, visitor):
-    inp = func_to_module(inp)
-    target_outp = func_to_module(outp)
-    generated_outp = cst.MetadataWrapper(inp).visit(visitor)
-
+def assert_code_equals(target_outp, generated_outp):
     target_code = target_outp.code
     generated_code = generated_outp.code
     if generated_code != target_code:
@@ -24,8 +20,14 @@ def run_visitor_harness(inp, outp, visitor):
         print('=' * 30)
         print('TARGET')
         print(target_code)
-        print('=' * 30)
         assert False
+
+
+def run_visitor_harness(inp, outp, visitor):
+    inp = func_to_module(inp)
+    target_outp = func_to_module(outp)
+    generated_outp = cst.MetadataWrapper(inp).visit(visitor)
+    assert_code_equals(target_outp, generated_outp)
 
 
 def run_pass_harness(prog, pass_, outp, locls, fixpoint=False):
@@ -48,16 +50,7 @@ def run_pass_harness(prog, pass_, outp, locls, fixpoint=False):
         outp_module = i.module.with_changes(body=parse_module(outp).body)
 
     # Print debug information if unexpected output
-    generated_code = i.module.code
-    target_code = outp_module.code
-    if generated_code != target_code:
-        print('GENERATED')
-        print(generated_code)
-        print('=' * 30)
-        print('TARGET')
-        print(target_code)
-        print('=' * 30)
-        assert False
+    assert_code_equals(outp_module, i.module)
 
     # Make sure we don't violate any assertions in generated code
     exec(i.module.code, locls, locls)
