@@ -40,7 +40,11 @@ assert encode_ret == '{}'
 def test_stress_seaborn_boxplot():
     import seaborn as sns
     import seaborn.categorical
+    import matplotlib.pyplot as plt
     tips = sns.load_dataset('tips')
+
+    # Silence warnings from repeatedly opening plots
+    plt.rcParams.update({'figure.max_open_warning': 0})
 
     def prog():
         sns.boxplot(x=tips.day, y=tips.tip)
@@ -48,7 +52,6 @@ def test_stress_seaborn_boxplot():
     outp = '''import colorsys
 
 import matplotlib as mpl
-import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from seaborn import utils
