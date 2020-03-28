@@ -3,7 +3,7 @@ from setuptools import find_packages, setup
 if __name__ == "__main__":
     setup(
         name='inliner',
-        version='0.4.0',
+        version='0.4.1',
         description='Human-readable inlining of Python code',
         url='http://github.com/willcrichton/inliner',
         author='Will Crichton',

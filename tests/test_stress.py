@@ -217,6 +217,9 @@ def test_stress_seaborn_facetgrid():
     import matplotlib.pyplot as plt
     tips = sns.load_dataset('tips')
 
+    # Silence warnings from repeatedly opening plots
+    plt.rcParams.update({'figure.max_open_warning': 0})
+
     def prog():
         g = sns.FacetGrid(data=tips, row='sex', col='day')
         g.map(plt.hist, 'tip')
