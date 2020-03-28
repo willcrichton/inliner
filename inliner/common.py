@@ -53,6 +53,9 @@ def get_function_locals(f):
 
 
 def dedent(s):
+    if s.strip() == '':
+        return ''
+
     no_backtick = re.sub(r'\\\n', '', s)
 
     # If a program has lines that don't match the top-level indent, e.g.
@@ -60,6 +63,7 @@ def dedent(s):
     lines = no_backtick.strip('\n').split('\n')
     indent = textwrap._leading_whitespace_re.search(lines[0])
     assert indent is not None, no_backtick
+
     indent = indent.group(1)
     for i, line in enumerate(lines):
         if not line.startswith(indent):

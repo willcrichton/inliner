@@ -61,7 +61,6 @@ class Inliner:
                 DeadCodePass,
                 CopyPropagationPass,
                 UnusedVarsPass,
-                RecordToVarsPass,
                 CleanImportsPass,
             ]
 
@@ -71,8 +70,8 @@ class Inliner:
                 any_change |= self.run_pass(Pass)
             return any_change
 
-        any_change = self.fixpoint(run_passes)
-        return any_change | self.run_pass(RemoveSuffixesPass)
+        return (self.fixpoint(run_passes) | self.run_pass(RecordToVarsPass)
+                | self.fixpoint(run_passes) | self.run_pass(RemoveSuffixesPass))
 
     def fixpoint(self, f, *args, **kwargs):
         any_change = False

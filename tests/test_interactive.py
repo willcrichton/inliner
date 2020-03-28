@@ -63,13 +63,13 @@ def test_interactive_debug():
     assert i.run_pass('inline')
 
     debug_str = """
-from inliner import Inliner
+from inliner import InteractiveInliner
 from inliner.targets import CursorTarget
 
 def f():
     assert json.dumps({}) == '{}'
 
-i = Inliner(f)
+i = InteractiveInliner(f)
 i.add_target("json.dumps")
 i.run_pass("inline")
 

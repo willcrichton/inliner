@@ -43,3 +43,43 @@ def test_copy_propagation_two_step():
         assert x == 1
 
     run_pass_harness(prog, CopyPropagationPass, outp, locals())
+
+
+def test_copy_propagation_attribute():
+    class Foo:
+        def __init__(self):
+            self.x = 1
+
+    def prog():
+        f = Foo()
+        a = f.x
+        assert a == 1
+
+    def outp():
+        f = Foo()
+        assert f.x == 1
+
+    run_pass_harness(prog, CopyPropagationPass, outp, locals())
+
+
+def test_copy_propagation_scope():
+    def prog():
+        x = 1
+        y = x
+
+        def foo():
+            return [y for _ in range(1)]
+
+        def bar(y):
+            return y
+
+    def outp():
+        x = 1
+
+        def foo():
+            return [x for _ in range(1)]
+
+        def bar(y):
+            return y
+
+    run_pass_harness(prog, CopyPropagationPass, outp, locals())

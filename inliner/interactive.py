@@ -166,13 +166,13 @@ class InteractiveInliner(Inliner):
             passes = '\n'.join([entry.to_code('i') for entry in self.history])
 
             return f'''
-from inliner import Inliner
+from inliner import InteractiveInliner
 from inliner.targets import CursorTarget
 
 def f():
 {f_body}
 
-i = Inliner(f)
+i = InteractiveInliner(f)
 {passes}
 
 print(i.code())
