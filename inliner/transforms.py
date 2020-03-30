@@ -522,7 +522,7 @@ def generate_import(name, obj, func_obj=None, file_imports=None):
         mod = inspect.getmodule(obj)
 
         # TODO: When is mod None?
-        if mod is None or mod is typing:
+        if mod is None or mod is typing or mod.__name__ == '__main__':
             return None
 
         # Can't import builtins

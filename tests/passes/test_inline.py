@@ -409,3 +409,23 @@ def test_inline_cursor():
         target_ret
 
     run_inline_harness(prog, CursorTarget((2, 0)), outp, locals())
+
+
+def test_inline_source_function():
+    def dummy_target():
+        pass
+
+    def prog():
+        def actual_target():
+            pass
+        actual_target()
+
+    def outp():
+        def actual_target():
+            pass
+        pass
+        if "actual_target_ret" not in globals():
+            actual_target_ret = None
+        actual_target_ret
+
+    run_inline_harness(prog, dummy_target, outp, locals())

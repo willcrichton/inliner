@@ -98,22 +98,24 @@ class UnusedVarsVisitor(cst.CSTVisitor):
         self.get_unused_lines()
 
     def get_unused_lines(self):
-        for k, stores in self.tracer.stores.items():
+        for k, writes in self.tracer.writes.items():
             reads = self.tracer.reads[k]
 
-            for i, store_line in enumerate(stores):
-                next_possible_stores = [
-                    line for line in stores[i + 1:] if line > store_line
+            for i, cur_write in enumerate(writes):
+                next_possible_writes = [
+                    next_write.line for next_write in writes[i + 1:]
+                    if next_write.line > cur_write.line
                 ]
-                next_store_line = min(next_possible_stores, default=sys.maxsize)
+                next_write_line = min(next_possible_writes, default=sys.maxsize)
 
                 unused = True
-                for read_line in reads:
-                    if store_line < read_line and read_line <= next_store_line:
+                for read in reads:
+                    if (cur_write.line < read.line and
+                            read.line <= next_write_line) or read.in_closure:
                         unused = False
 
                 if unused:
-                    self.unused_lines.add(store_line)
+                    self.unused_lines.add(cur_write.line)
 
     def get_is_unused(self, node):
         pos = self.get_metadata(PositionProvider, node)
@@ -131,12 +133,17 @@ class TracerArgs(NamedTuple):
     debug: bool = False
 
 
+class IOEvent(NamedTuple):
+    line: int
+    in_closure: bool
+
+
 class Tracer:
     """
-    Executes a program and collects information about loads, stores, and executed lines.
+    Executes a program and collects information about loads, writes, and executed lines.
     """
 
-    store_instrs = set(['STORE_NAME', 'STORE_FAST', 'STORE_GLOBAL'])
+    write_instrs = set(['STORE_NAME', 'STORE_FAST', 'STORE_GLOBAL'])
     read_instrs = set(['LOAD_NAME', 'LOAD_FAST', 'LOAD_GLOBAL'])
     globls: Globals
 
@@ -152,11 +159,11 @@ class Tracer:
         self.transformed_module = self.module.visit(transformer)
         self.node_map = transformer.node_map
         self.reads = defaultdict(list)
-        self.stores = defaultdict(list)
+        self.writes = defaultdict(list)
         self.execed_lines = defaultdict(int)
         self.trace_lines = args.trace_lines
         self.trace_reads = args.trace_reads
-        self._frame_analyzer = None
+        self._frame_analyzers = {}
         self.globls = globls.copy() if globls is not None else {}
 
     def _trace_fn(self, frame, event, arg):
@@ -165,19 +172,23 @@ class Tracer:
             return
 
         frame.f_trace_opcodes = self.trace_reads
-        frame.f_trace_lines = self.trace_lines
+        frame.f_trace_lines = self.trace_lines or self.trace_reads
 
         if event == 'opcode':
-            if self._frame_analyzer is None:
-                self._frame_analyzer = FrameAnalyzer(frame)
+            if frame not in self._frame_analyzers:
+                self._frame_analyzers[frame] = FrameAnalyzer(frame)
+            analyzer = self._frame_analyzers[frame]
 
-            instr = self._frame_analyzer.current_instr()
+            instr = analyzer.current_instr()
             name = instr.argval
 
-            if instr.opname in self.store_instrs:
-                self.stores[name].append(frame.f_lineno)
+            in_closure = frame.f_code.co_name != '<module>'
+            if instr.opname in self.write_instrs:
+                self.writes[name].append(
+                    IOEvent(line=frame.f_lineno, in_closure=in_closure))
             elif instr.opname in self.read_instrs:
-                self.reads[name].append(frame.f_lineno)
+                self.reads[name].append(
+                    IOEvent(line=frame.f_lineno, in_closure=in_closure))
 
         elif event == 'line':
             self.execed_lines[frame.f_lineno] += 1
