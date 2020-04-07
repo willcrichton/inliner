@@ -1,0 +1,22 @@
+{
+  "compilerOptions": {
+    "declaration": true,
+    "outDir": "./dist/",
+    "types": ["react"],
+    "sourceMap": true,
+    "module": "commonjs",
+    "target": "es2018",
+    "jsx": "react",
+    "strict": true,
+    "experimentalDecorators": true,
+    "noImplicitReturns": true,
+    "esModuleInterop": true,
+  },
+  "include": [
+    "./src/**/*"
+  ],
+  "exclude": ["./src/lab.tsx"],
+  "typedocOptions": {
+    "out": "docs"
+  }
+}
