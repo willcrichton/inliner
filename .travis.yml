@@ -4,8 +4,13 @@ before_install:
 - pyenv install --skip-existing 3.7 && pyenv global 3.7
 - python3 -m venv .env && source .env/bin/activate
 - pip3 install tox
+- git clone https://github.com/lezer-parser/lezer-tree -b v0.8.4 && pushd lezer-tree && npm link && popd
+- git clone https://github.com/codemirror/codemirror.next -b v0.5.3 && pushd codemirror.next && npm i && npm link lezer-tree && npm link && popd
 install:
-- pushd inliner_jupyter && npm install && npm run prepublishOnly && popd
+- pushd inliner_jupyter
+- npm install && npm link lezer-tree && npm link @codemirror/next
+- npm run prepublishOnly
+- popd
 script: travis_wait tox && cd inliner_jupyter
 after_deploy: cd ..
 deploy:
