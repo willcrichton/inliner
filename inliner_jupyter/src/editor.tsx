@@ -4,7 +4,7 @@ import React from 'react'
 import axios from 'axios'
 import _ from 'lodash'
 
-import {EditorView, ViewPlugin, PluginValue, ViewUpdate} from "@codemirror/next/view"
+import {EditorView, PluginValue, Decoration, ViewUpdate, ViewPlugin} from "@codemirror/next/view"
 import {foldGutter, foldCode, unfoldCode} from "@codemirror/next/fold"
 import {EditorState, Syntax, Extension, StateField} from "@codemirror/next/state"
 import {lineNumbers} from "@codemirror/next/gutter"
@@ -14,16 +14,21 @@ import {keymap} from "@codemirror/next/keymap"
 import {baseKeymap, indentSelection} from "@codemirror/next/commands"
 import {defaultHighlighter} from "@codemirror/next/highlight"
 import {styleTags} from "@codemirror/next/highlight"
+import {RangeSetBuilder, RangeSet} from "@codemirror/next/rangeset"
 
 
 
 declare var __non_webpack_require__: any;
-declare global { interface Window { Module: any } }
+declare global { interface Window { Module: any; PythonParser: any } }
 
 async function parser_init(): Promise<any> {
   const BASE_URL = '/nbextensions/inliner_jupyter/dist';
   const response = await axios.get(`${BASE_URL}/tree-sitter.wasm`, {responseType: 'arraybuffer'});
   const buffer = response.data;
+  if (window.PythonParser) {
+      return window.PythonParser;
+  }
+
   window.Module = {wasmBinary: buffer};
   return new Promise(function(success, fail) {
     __non_webpack_require__([`${BASE_URL}/tree-sitter.js`], function(Parser: any) {
@@ -32,6 +37,7 @@ async function parser_init(): Promise<any> {
         const PythonLang = await Parser.Language.load(`${BASE_URL}/tree-sitter-python.wasm`);
         let parser = new Parser();
         parser.setLanguage(PythonLang);
+        window.PythonParser = parser;
         success(parser);
       }
       inner();
@@ -111,7 +117,28 @@ class PythonSyntax implements Syntax {
   }
 }
 
-export class CodeEditor extends React.Component<{code: string}> {
+class DeadCode implements PluginValue {
+    decorations: RangeSet<Decoration>
+
+    constructor(dead_code: number[][]) {
+        let builder = new RangeSetBuilder<Decoration>();
+        dead_code.sort((a, b) => a[0] - b[0]).forEach(([start, end]) => {
+            builder.add(start, end, Decoration.mark({class: 'deadcode'}));
+        });
+        this.decorations = builder.finish();
+    }
+
+    update(update: ViewUpdate) {
+        // pass
+    }    
+}
+
+type CodeEditorProps = {
+    code: string,  
+    dead_code: number[][]
+}
+
+export class CodeEditor extends React.Component<CodeEditorProps> {
   editor: EditorView | null = null
   node: Element | null = null
 
@@ -142,6 +169,7 @@ export class CodeEditor extends React.Component<{code: string}> {
       keymap(baseKeymap),
       python_syntax.extension,
       defaultHighlighter,
+      ViewPlugin.define(_ => new DeadCode(this.props.dead_code)).decorations(),
     ]
 
     const doc = this.props.code;

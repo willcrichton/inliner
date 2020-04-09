@@ -10,7 +10,7 @@ if __name__ == "__main__":
         author_email='wcrichto@cs.stanford.edu',
         license='Apache 2.0',
         packages=find_packages(),
-        install_requires=['libcst', 'iterextras', 'context-var', 'isort'],
+        install_requires=['libcst', 'iterextras', 'context-var', 'isort', 'intervaltree'],
         dependency_links=[
             'https://github.com/leonardt/ast_tools/tarball/master#egg=ast_tools-0.0.14'
         ],

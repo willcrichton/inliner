@@ -3,7 +3,8 @@ import textwrap
 from typing import NamedTuple
 
 import libcst as cst
-from libcst.metadata import PositionProvider, ScopeProvider
+from libcst.metadata import PositionProvider, ScopeProvider, ByteSpanPositionProvider
+from intervaltree import IntervalTree
 
 from .common import EvalException, a2s
 from .contexts import ctx_inliner
@@ -153,6 +154,27 @@ class InteractiveInliner(Inliner):
         finder = FindUnexecutedBlocks(tracer)
         cst.MetadataWrapper(self.module, unsafe_skip_copy=True).visit(finder)
         return sorted(finder.unexecuted)
+
+    def code_viewer(self):
+        from .jupyter import CodeViewer
+        tracer = Tracer(self.module,
+                        globls=self.base_globls,
+                        args=TracerArgs(trace_lines=True)).trace()
+        counts = tracer.exec_counts()
+        positions = cst.MetadataWrapper(self.module, unsafe_skip_copy=True).resolve(ByteSpanPositionProvider)
+
+        tree = IntervalTree()
+        for node, count in counts.items():
+            if isinstance(node, cst.SimpleWhitespace):
+                continue
+
+            pos = positions[node]
+            if count == 0 and pos.length > 0:
+                tree.addi(pos.start, pos.start+pos.length)
+        tree.merge_overlaps()
+
+        return CodeViewer(code=self.code(), 
+                          dead_code=[[i.begin, i.end] for i in tree])
 
     def undo(self):
         while (not isinstance(self.history[-1], RunPassHistory)):

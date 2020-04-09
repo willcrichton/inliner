@@ -208,7 +208,7 @@ export class CodeViewerModel extends DOMWidgetModel {}
 
 export class CodeViewerWidget extends DOMWidgetView {
   render() {
-    ReactDOM.render(<CodeEditor code={this.model.get('code')} />, this.el);
+    ReactDOM.render(<CodeEditor code={this.model.get('code')} dead_code={this.model.get('dead_code')} />, this.el);
   }
 }
 

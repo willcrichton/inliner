@@ -1,3 +1,4 @@
+const CopyWebpackPlugin = require('copy-webpack-plugin')
 const webpack = require('webpack');
 const _ = require('lodash');
 
@@ -9,16 +10,13 @@ let build_options = (opts) =>
     },
     devtool: 'source-map',
     resolve: {
-      extensions: ['.jsx', '.js', '.scss']
+      extensions: ['.ts', '.tsx', '.jsx', '.js', '.scss', '.wasm']
     },
     module: {
       rules: [
         {
-          test: /\.jsx$/,
-          exclude: /node_modules/,
-          use: {
-            loader: "babel-loader"
-          }
+          test: /\.tsx?$/,
+          loader: 'ts-loader'
         },
         {
           test: /\.s?css$/,
@@ -27,24 +25,28 @@ let build_options = (opts) =>
         {
           test: /\.svg$/,
           use: ['svg-inline-loader']
-        }
+        },
       ]
     },
+    plugins: [
+      new webpack.IgnorePlugin({resourceRegExp: /^fs$/}),
+      new CopyWebpackPlugin([{from: 'src/tree-sitter'}])
+    ]
   }, opts);
 
 let notebook_opts = build_options({
-  entry: './src/notebook.jsx',
+  entry: './src/notebook.tsx',
   output: {filename: 'notebook.js'},
   externals: {
     'jquery': 'jquery',
     'base/js/namespace': 'base/js/namespace',
     'base/js/dialog': 'base/js/dialog',
-    'codemirror/lib/codemirror': 'codemirror/lib/codemirror'
+    'codemirror/lib/codemirror': 'codemirror/lib/codemirror',
   }
 });
 
 let lab_opts = build_options({
-  entry: './src/lab.jsx',
+  entry: './src/lab.tsx',
   output: {filename: 'lab.js'},
   externals: {
     '@jupyterlab/apputils': '@jupyterlab/apputils',
@@ -53,4 +55,4 @@ let lab_opts = build_options({
   }
 });
 
-module.exports = [notebook_opts, lab_opts];
+module.exports = [notebook_opts] //lab_opts

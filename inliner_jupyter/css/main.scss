@@ -125,3 +125,11 @@
         }
     }
 }
+
+.deadcode {
+    filter: grayscale(50%) opacity(30%);
+
+    &:hover {
+        filter: grayscale(0%) opacity(100%);
+    }
+}

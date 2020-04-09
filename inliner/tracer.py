@@ -73,9 +73,18 @@ class ExecCountsVisitor(cst.CSTVisitor):
         self.exec_counts = {}
 
     def get_exec_counts(self, node):
+        if node is None:
+            return [0]
+
         pos = self.get_metadata(PositionProvider, node)
         lines = list(range(pos.start.line, pos.end.line + 1))
         return [self.tracer.execed_lines.get(line, 0) for line in lines]
+
+    def visit_If(self, node):
+        self.exec_counts[node] = max(
+            max(self.get_exec_counts(node.test)),
+            max(self.get_exec_counts(node.body)),
+            max(self.get_exec_counts(node.orelse)))
 
     def on_visit(self, node) -> bool:
         if isinstance(node, (cst.Module, cst.IndentedBlock)):
