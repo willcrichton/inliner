@@ -146,17 +146,17 @@ def test_deadcode_keep_comments():
         # please remove me
         if False:
             # and remove me
-            pass
+            x = 1
         # please keep me
         else:
             # and keep me
-            pass
+            x = 2
 
     def outp():
         # hello world
         """don't remove me"""
         # please keep me
         # and keep me
-        pass
+        x = 2
 
     run_pass_harness(prog, DeadCodePass, outp, locals())

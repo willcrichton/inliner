@@ -32,6 +32,7 @@ for x in range(10):
     else:
         __name__
         x = 2
+__name__
 """
 
     outp_mod = mod.with_changes(body=cst.parse_module(outp).body)

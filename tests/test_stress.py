@@ -1,5 +1,7 @@
 from utils import run_optimize_harness
 from pytest import mark
+import matplotlib
+matplotlib.use('agg')
 
 
 @mark.last

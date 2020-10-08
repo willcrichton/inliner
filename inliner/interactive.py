@@ -173,7 +173,7 @@ class InteractiveInliner(Inliner):
                 tree.addi(pos.start, pos.start+pos.length)
         tree.merge_overlaps()
 
-        return CodeViewer(code=self.code(), 
+        return CodeViewer(code=self.code(),
                           dead_code=[[i.begin, i.end] for i in tree])
 
     def undo(self):

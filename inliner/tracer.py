@@ -58,6 +58,13 @@ class InsertDummyTransformer(cst.CSTTransformer):
                                              list(updated_node.body))
         return updated_node
 
+    def leave_Module(self, original_node, updated_node):
+        # Have to add __name__ to end of module, b/c as of Python 3.8
+        # apparently the last line of the module is associated with an implicit
+        # return of None
+        return updated_node.with_changes(
+            body=list(updated_node.body) + [parse_statement("__name__")])
+
     def on_leave(self, original_node, updated_node):
         final_node = super().on_leave(original_node, updated_node)
         self.node_map[final_node] = original_node
@@ -199,6 +206,7 @@ class Tracer:
                 self.reads[name].append(
                     IOEvent(line=frame.f_lineno, in_closure=in_closure))
 
+
         elif event == 'line':
             self.execed_lines[frame.f_lineno] += 1
 
@@ -246,7 +254,7 @@ class Tracer:
         the filename.
         """
         with NamedTemporaryFile(delete=False, prefix=TRACER_FILE_PREFIX) as f:
-            prog = self.transformed_module.code
+            prog = self.transformed_module.code + '\n'
             f.write(prog.encode('utf-8'))
             f.flush()
             self._fname = f.name
