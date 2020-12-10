@@ -109,7 +109,7 @@ class ClassTarget(InlineTarget):
                     cls = pass_.eval(code.value)
                     unbound_method = (isinstance(cls, self.target)
                                       or issubclass(self.target, cls))
-                except EvalException, TypeError:
+                except (EvalException, TypeError):
                     unbound_method = False
             else:
                 qname = obj.__qualname__.split('.')
