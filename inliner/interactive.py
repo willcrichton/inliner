@@ -95,9 +95,13 @@ class HistoryEntry:
         raise NotImplementedError
 
 
-class RunPassHistory(NamedTuple, HistoryEntry):
+class RunPassHistory(HistoryEntry):
     prev_module: cst.Module
     pass_: BasePass
+
+    def __init__(self, prev_module, pass_):
+        self.prev_module = prev_module
+        self.pass_ = pass_
 
     def to_code(self, name):
         pass_name = self.pass_.name()
@@ -107,8 +111,11 @@ class RunPassHistory(NamedTuple, HistoryEntry):
         inliner.module = self.prev_module
 
 
-class AddTargetHistory(NamedTuple, HistoryEntry):
+class AddTargetHistory(HistoryEntry):
     target: InlineTarget
+
+    def __init__(self, target):
+        self.target = target
 
     def to_code(self, name):
         return f'{name}.add_target({self.target.to_string()})'
