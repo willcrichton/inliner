@@ -1,5 +1,6 @@
 import libcst as cst
 import libcst.matchers as m
+from libcst.metadata import ScopeProvider, ParentNodeProvider
 import inspect
 
 from ..tracer import TracerArgs
@@ -12,6 +13,8 @@ obj_new_pattern = m.Assign(
 
 
 class FindSafeObjsToConvert(cst.CSTVisitor):
+    METADATA_DEPENDENCIES = (ScopeProvider, ParentNodeProvider)
+
     def __init__(self, pass_):
         self.pass_ = pass_
         self.whitelist = set()
@@ -22,15 +25,23 @@ class FindSafeObjsToConvert(cst.CSTVisitor):
             name = node.targets[0].target.value
             if name in self.pass_.globls:
                 obj = self.pass_.globls[name]
-                self.whitelist.add(id(obj))
 
-    def visit_Attribute(self, node):
-        try:
-            obj = self.pass_.eval(node)
-            if inspect.ismethod(obj):
-                self.blacklist.add(id(obj.__self__))
-        except EvalException:
-            pass
+                scope = self.get_metadata(ScopeProvider, node)
+                for access in scope.accesses[name]:
+                    parent = self.get_metadata(ParentNodeProvider, access.node)
+                    is_attr = m.matches(parent, m.Attribute(value=m.Name()))
+
+                    try:
+                        parent_obj = self.pass_.eval(parent)
+                        is_method = inspect.ismethod(parent_obj)
+                    except EvalException:
+                        is_method = False
+
+                    if not is_attr or is_method:
+                        self.blacklist.add(id(obj))
+                        return
+
+                self.whitelist.add(id(obj))
 
     def visit_FunctionDef(self, node):
         return False
@@ -67,7 +78,7 @@ class RecordToVarsPass(BasePass):
         super().visit_Module(node)
 
         finder = FindSafeObjsToConvert(self)
-        node.visit(finder)
+        cst.MetadataWrapper(node).visit(finder)
         safe_objs = finder.whitelist - finder.blacklist
 
         # We find all the objects that need to be inlined by going through

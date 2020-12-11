@@ -537,6 +537,8 @@ def generate_import(name, obj, func_obj=None, file_imports=None):
         # Otherwise import it from the module using the global
         elif func_obj is not None:
             func_mod_name = inspect.getmodule(func_obj).__name__
+            if func_mod_name == '__main__':
+                return None
             return parse_statement(f'from {func_mod_name} import {name}')
 
 

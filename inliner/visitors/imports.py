@@ -24,7 +24,7 @@ class CollectImports(cst.CSTVisitor):
 
     def visit_Assign(self, node) -> None:
         if (m.matches(node, m.Assign(targets=[m.AssignTarget(m.Name())]))
-                and self.toplevel == 0):
+            and self.toplevel == 0):
             name = node.targets[0].target
             self.imprts[name.value] = cst.ImportFrom(
                 module=parse_expr(self.mod),
@@ -58,13 +58,12 @@ class CollectImports(cst.CSTVisitor):
             alias = cst.ImportAlias(name=alias.name, asname=alias.asname)
             self.imprts[name] = cst.ImportFrom(module=module, names=[alias])
 
-
 _IMPORT_CACHE = {}
 
 
 def collect_imports(obj):
     mod = inspect.getmodule(obj)
-    if mod is None:
+    if mod is None or mod.__name__ == '__main__':
         return []
 
     mod_name = mod.__name__
@@ -76,4 +75,5 @@ def collect_imports(obj):
     obj_mod.visit(import_collector)
     imprts = import_collector.imprts
     _IMPORT_CACHE[mod_name] = imprts
+
     return imprts

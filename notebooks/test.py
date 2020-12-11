@@ -1,4 +1,9 @@
-def foo(x):
-    y = x + 1
+class A:
+    def __init__(self, flag):
+        self.flag = flag
 
-    return y + 1
+    def foo(self, x):
+        if self.flag:
+            return x + 1
+        else:
+            return x * 2
